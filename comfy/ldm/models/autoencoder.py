@@ -1,8 +1,10 @@
 import logging
 import math
-import torch
 from contextlib import contextmanager
-from typing import Any, Dict, Tuple, Union
+from typing import Any, Dict, Tuple, Union, Optional
+
+import mindspore
+from mindspore import mint
 
 from comfy.ldm.modules.distributions.distributions import DiagonalGaussianDistribution
 
@@ -10,7 +12,7 @@ from comfy.ldm.util import get_obj_from_str, instantiate_from_config
 from comfy.ldm.modules.ema import LitEma
 import comfy.ops
 
-class DiagonalGaussianRegularizer(torch.nn.Module):
+class DiagonalGaussianRegularizer(mindspore.nn.Cell):
     def __init__(self, sample: bool = False):
         super().__init__()
         self.sample = sample
@@ -18,7 +20,7 @@ class DiagonalGaussianRegularizer(torch.nn.Module):
     def get_trainable_parameters(self) -> Any:
         yield from ()
 
-    def forward(self, z: torch.Tensor) -> Tuple[torch.Tensor, dict]:
+    def construct(self, z: mindspore.Tensor) -> Tuple[mindspore.Tensor, dict]:
         posterior = DiagonalGaussianDistribution(z)
         if self.sample:
             z = posterior.sample()
@@ -26,14 +28,14 @@ class DiagonalGaussianRegularizer(torch.nn.Module):
             z = posterior.mode()
         return z, None
 
-class EmptyRegularizer(torch.nn.Module):
+class EmptyRegularizer(mindspore.nn.Cell):
     def __init__(self):
         super().__init__()
 
-    def forward(self, z: torch.Tensor) -> Tuple[torch.Tensor, dict]:
+    def construct(self, z: mindspore.Tensor) -> Tuple[mindspore.Tensor, dict]:
         return z, None
 
-class AbstractAutoencoder(torch.nn.Module):
+class AbstractAutoencoder(mindspore.nn.Cell):
     """
     This is the base class for all autoencoders, including image autoencoders, image autoencoders with discriminators,
     unCLIP models, etc. Hence, it is fairly general, and specific features
@@ -81,10 +83,10 @@ class AbstractAutoencoder(torch.nn.Module):
                 if context is not None:
                     logging.info(f"{context}: Restored training weights")
 
-    def encode(self, *args, **kwargs) -> torch.Tensor:
+    def encode(self, *args, **kwargs) -> mindspore.Tensor:
         raise NotImplementedError("encode()-method of abstract base class called")
 
-    def decode(self, *args, **kwargs) -> torch.Tensor:
+    def decode(self, *args, **kwargs) -> mindspore.Tensor:
         raise NotImplementedError("decode()-method of abstract base class called")
 
     def instantiate_optimizer_from_config(self, params, lr, cfg):
@@ -114,8 +116,8 @@ class AutoencodingEngine(AbstractAutoencoder):
     ):
         super().__init__(*args, **kwargs)
 
-        self.encoder: torch.nn.Module = instantiate_from_config(encoder_config)
-        self.decoder: torch.nn.Module = instantiate_from_config(decoder_config)
+        self.encoder: mindspore.nn.Cell = instantiate_from_config(encoder_config)
+        self.decoder: mindspore.nn.Cell = instantiate_from_config(decoder_config)
         self.regularization = instantiate_from_config(
             regularizer_config
         )
@@ -125,10 +127,10 @@ class AutoencodingEngine(AbstractAutoencoder):
 
     def encode(
         self,
-        x: torch.Tensor,
+        x: mindspore.Tensor,
         return_reg_log: bool = False,
         unregularized: bool = False,
-    ) -> Union[torch.Tensor, Tuple[torch.Tensor, dict]]:
+    ) -> Union[mindspore.Tensor, Tuple[mindspore.Tensor, dict]]:
         z = self.encoder(x)
         if unregularized:
             return z, dict()
@@ -137,16 +139,23 @@ class AutoencodingEngine(AbstractAutoencoder):
             return z, reg_log
         return z
 
-    def decode(self, z: torch.Tensor, **kwargs) -> torch.Tensor:
+    def decode(self, z: mindspore.Tensor, **kwargs) -> mindspore.Tensor:
         x = self.decoder(z, **kwargs)
         return x
 
-    def forward(
-        self, x: torch.Tensor, **additional_decode_kwargs
-    ) -> Tuple[torch.Tensor, torch.Tensor, dict]:
+    def construct(
+        self, x: mindspore.Tensor, **additional_decode_kwargs
+    ) -> Tuple[mindspore.Tensor, mindspore.Tensor, dict]:
         z, reg_log = self.encode(x, return_reg_log=True)
         dec = self.decode(z, **additional_decode_kwargs)
         return z, dec, reg_log
+
+    def to(self, dtype: Optional[mindspore.Type] = None):
+        for p in self.get_parameters():
+            if mindspore.ops.is_floating_point(p):
+                p.set_dtype(dtype)
+        return self
+
 
 
 class AutoencodingEngineLegacy(AutoencodingEngine):
@@ -184,8 +193,8 @@ class AutoencodingEngineLegacy(AutoencodingEngine):
         return params
 
     def encode(
-        self, x: torch.Tensor, return_reg_log: bool = False
-    ) -> Union[torch.Tensor, Tuple[torch.Tensor, dict]]:
+        self, x: mindspore.Tensor, return_reg_log: bool = False
+    ) -> Union[mindspore.Tensor, Tuple[mindspore.Tensor, dict]]:
         if self.max_batch_size is None:
             z = self.encoder(x)
             z = self.quant_conv(z)
@@ -198,14 +207,14 @@ class AutoencodingEngineLegacy(AutoencodingEngine):
                 z_batch = self.encoder(x[i_batch * bs : (i_batch + 1) * bs])
                 z_batch = self.quant_conv(z_batch)
                 z.append(z_batch)
-            z = torch.cat(z, 0)
+            z = mint.cat(z, 0)
 
         z, reg_log = self.regularization(z)
         if return_reg_log:
             return z, reg_log
         return z
 
-    def decode(self, z: torch.Tensor, **decoder_kwargs) -> torch.Tensor:
+    def decode(self, z: mindspore.Tensor, **decoder_kwargs) -> mindspore.Tensor:
         if self.max_batch_size is None:
             dec = self.post_quant_conv(z)
             dec = self.decoder(dec, **decoder_kwargs)
@@ -218,7 +227,7 @@ class AutoencodingEngineLegacy(AutoencodingEngine):
                 dec_batch = self.post_quant_conv(z[i_batch * bs : (i_batch + 1) * bs])
                 dec_batch = self.decoder(dec_batch, **decoder_kwargs)
                 dec.append(dec_batch)
-            dec = torch.cat(dec, 0)
+            dec = mint.cat(dec, 0)
 
         return dec
 

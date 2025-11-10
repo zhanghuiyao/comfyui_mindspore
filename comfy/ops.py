@@ -295,29 +295,29 @@ class disable_weight_init:
             else:
                 return super().construct(*args, **kwargs)
 
-    class ConvTranspose1d(mint.nn.ConvTranspose1d, CastWeightBiasOp):
-        def reset_parameters(self):
-            return None
+    # class ConvTranspose1d(mint.nn.ConvTranspose1d, CastWeightBiasOp):
+    #     def reset_parameters(self):
+    #         return None
 
-        def forward_comfy_cast_weights(self, input, output_size=None):
-            num_spatial_dims = 1
-            output_padding = self._output_padding(
-                input, output_size, self.stride, self.padding, self.kernel_size,
-                num_spatial_dims, self.dilation)
+    #     def forward_comfy_cast_weights(self, input, output_size=None):
+    #         num_spatial_dims = 1
+    #         output_padding = self._output_padding(
+    #             input, output_size, self.stride, self.padding, self.kernel_size,
+    #             num_spatial_dims, self.dilation)
 
-            weight, bias = cast_bias_weight(self, input, offloadable=False)
-            x = mint.functional.conv_transpose1d(
-                input, weight, bias, self.stride, self.padding,
-                output_padding, self.groups, self.dilation)
-            uncast_bias_weight(self, weight, bias, None)
-            return x
+    #         weight, bias = cast_bias_weight(self, input, offloadable=False)
+    #         x = mint.functional.conv_transpose1d(
+    #             input, weight, bias, self.stride, self.padding,
+    #             output_padding, self.groups, self.dilation)
+    #         uncast_bias_weight(self, weight, bias, None)
+    #         return x
 
-        def construct(self, *args, **kwargs):
-            run_every_op()
-            if self.comfy_cast_weights or len(self.weight_function) > 0 or len(self.bias_function) > 0:
-                return self.forward_comfy_cast_weights(*args, **kwargs)
-            else:
-                return super().construct(*args, **kwargs)
+    #     def construct(self, *args, **kwargs):
+    #         run_every_op()
+    #         if self.comfy_cast_weights or len(self.weight_function) > 0 or len(self.bias_function) > 0:
+    #             return self.forward_comfy_cast_weights(*args, **kwargs)
+    #         else:
+    #             return super().construct(*args, **kwargs)
 
     class Embedding(mint.nn.Embedding, CastWeightBiasOp):
         def reset_parameters(self):
@@ -375,8 +375,8 @@ class manual_cast(disable_weight_init):
     class ConvTranspose2d(disable_weight_init.ConvTranspose2d):
         comfy_cast_weights = True
 
-    class ConvTranspose1d(disable_weight_init.ConvTranspose1d):
-        comfy_cast_weights = True
+    # class ConvTranspose1d(disable_weight_init.ConvTranspose1d):
+    #     comfy_cast_weights = True
 
     class RMSNorm(disable_weight_init.RMSNorm):
         comfy_cast_weights = True
@@ -385,46 +385,47 @@ class manual_cast(disable_weight_init):
         comfy_cast_weights = True
 
 
-# def fp8_linear(self, input):
-#     """
-#     Legacy FP8 linear function for backward compatibility.
-#     Uses QuantizedTensor subclass for dispatch.
-#     """
-#     dtype = self.weight.dtype
-#     if dtype not in [torch.float8_e4m3fn]:
-#         return None
+def fp8_linear(self, input):
+    # """
+    # Legacy FP8 linear function for backward compatibility.
+    # Uses QuantizedTensor subclass for dispatch.
+    # """
+    # dtype = self.weight.dtype
+    # if dtype not in [mindspore.float8_e4m3fn]:
+    #     return None
 
-#     input_dtype = input.dtype
+    # input_dtype = input.dtype
 
-#     if input.ndim == 3 or input.ndim == 2:
-#         w, bias, offload_stream = cast_bias_weight(self, input, dtype=dtype, bias_dtype=input_dtype, offloadable=True)
+    # if input.ndim == 3 or input.ndim == 2:
+    #     w, bias, offload_stream = cast_bias_weight(self, input, dtype=dtype, bias_dtype=input_dtype, offloadable=True)
 
-#         scale_weight = self.scale_weight
-#         scale_input = self.scale_input
-#         if scale_weight is None:
-#             scale_weight = torch.ones((), device=input.device, dtype=torch.float32)
-#         else:
-#             scale_weight = scale_weight.to(input.device)
+    #     scale_weight = self.scale_weight
+    #     scale_input = self.scale_input
+    #     if scale_weight is None:
+    #         scale_weight = torch.ones((), device=input.device, dtype=mindspore.float32)
+    #     else:
+    #         scale_weight = scale_weight.to(input.device)
 
-#         if scale_input is None:
-#             scale_input = torch.ones((), device=input.device, dtype=torch.float32)
-#             input = torch.clamp(input, min=-448, max=448, out=input)
-#             layout_params_weight = {'scale': scale_input, 'orig_dtype': input_dtype}
-#             quantized_input = QuantizedTensor(input.to(dtype).contiguous(), "TensorCoreFP8Layout", layout_params_weight)
-#         else:
-#             scale_input = scale_input.to(input.device)
-#             quantized_input = QuantizedTensor.from_float(input, "TensorCoreFP8Layout", scale=scale_input, dtype=dtype)
+    #     if scale_input is None:
+    #         scale_input = torch.ones((), device=input.device, dtype=mindspore.float32)
+    #         input = torch.clamp(input, min=-448, max=448, out=input)
+    #         layout_params_weight = {'scale': scale_input, 'orig_dtype': input_dtype}
+    #         quantized_input = QuantizedTensor(input.to(dtype).contiguous(), "TensorCoreFP8Layout", layout_params_weight)
+    #     else:
+    #         scale_input = scale_input.to(input.device)
+    #         quantized_input = QuantizedTensor.from_float(input, "TensorCoreFP8Layout", scale=scale_input, dtype=dtype)
 
-#         # Wrap weight in QuantizedTensor - this enables unified dispatch
-#         # Call F.linear - __torch_dispatch__ routes to fp8_linear handler in quant_ops.py!
-#         layout_params_weight = {'scale': scale_weight, 'orig_dtype': input_dtype}
-#         quantized_weight = QuantizedTensor(w, "TensorCoreFP8Layout", layout_params_weight)
-#         o = mint.functional.linear(quantized_input, quantized_weight, bias)
+    #     # Wrap weight in QuantizedTensor - this enables unified dispatch
+    #     # Call F.linear - __torch_dispatch__ routes to fp8_linear handler in quant_ops.py!
+    #     layout_params_weight = {'scale': scale_weight, 'orig_dtype': input_dtype}
+    #     quantized_weight = QuantizedTensor(w, "TensorCoreFP8Layout", layout_params_weight)
+    #     o = mint.functional.linear(quantized_input, quantized_weight, bias)
 
-#         uncast_bias_weight(self, w, bias, offload_stream)
-#         return o
+    #     uncast_bias_weight(self, w, bias, offload_stream)
+    #     return o
 
-#     return None
+    # return None
+    raise NotImplementedError
 
 # class fp8_ops(manual_cast):
 #     class Linear(manual_cast.Linear):
@@ -458,13 +459,13 @@ class manual_cast(disable_weight_init):
 
 #             def reset_parameters(self):
 #                 if not hasattr(self, 'scale_weight'):
-#                     self.scale_weight = mint.nn.parameter.Parameter(data=torch.ones((), device=self.weight.device, dtype=torch.float32), requires_grad=False)
+#                     self.scale_weight = mint.nn.parameter.Parameter(data=torch.ones((), device=self.weight.device, dtype=mindspore.float32), requires_grad=False)
 
 #                 if not scale_input:
 #                     self.scale_input = None
 
 #                 if not hasattr(self, 'scale_input'):
-#                     self.scale_input = mint.nn.parameter.Parameter(data=torch.ones((), device=self.weight.device, dtype=torch.float32), requires_grad=False)
+#                     self.scale_input = mint.nn.parameter.Parameter(data=torch.ones((), device=self.weight.device, dtype=mindspore.float32), requires_grad=False)
 #                 return None
 
 #             def forward_comfy_cast_weights(self, input):
@@ -496,11 +497,11 @@ class manual_cast(disable_weight_init):
 #                 if inplace_update:
 #                     self.weight.data.copy_(weight)
 #                 else:
-#                     self.weight = mint.nn.Parameter(weight, requires_grad=False)
+#                     self.weight = mindspore.Parameter(weight, requires_grad=False)
 
 #     return scaled_fp8_op
 
-# CUBLAS_IS_AVAILABLE = False
+CUBLAS_IS_AVAILABLE = False
 # try:
 #     from cublas_ops import CublasLinear
 #     CUBLAS_IS_AVAILABLE = True
@@ -527,143 +528,147 @@ class manual_cast(disable_weight_init):
 
 # QUANT_FORMAT_MIXINS = {
 #     "float8_e4m3fn": {
-#         "dtype": torch.float8_e4m3fn,
+#         "dtype": mindspore.float8_e4m3fn,
 #         "layout_type": "TensorCoreFP8Layout",
 #         "parameters": {
-#             "weight_scale": mint.nn.Parameter(torch.zeros((), dtype=torch.float32), requires_grad=False),
-#             "input_scale": mint.nn.Parameter(torch.zeros((), dtype=torch.float32), requires_grad=False),
+#             "weight_scale": mindspore.Parameter(torch.zeros((), dtype=mindspore.float32), requires_grad=False),
+#             "input_scale": mindspore.Parameter(torch.zeros((), dtype=mindspore.float32), requires_grad=False),
 #         }
 #     }
 # }
 
-# class MixedPrecisionOps(disable_weight_init):
-#     _layer_quant_config = {}
-#     _compute_dtype = mindspore.bfloat16
+class MixedPrecisionOps(disable_weight_init):
+    _layer_quant_config = {}
+    _compute_dtype = mindspore.bfloat16
 
-#     class Linear(mint.nn.Module, CastWeightBiasOp):
-#         def __init__(
-#             self,
-#             in_features: int,
-#             out_features: int,
-#             bias: bool = True,
-#             device=None,
-#             dtype=None,
-#         ) -> None:
-#             super().__init__()
+    class Linear(mint.nn.Cell, CastWeightBiasOp):
+        def __init__(
+            self,
+            in_features: int,
+            out_features: int,
+            bias: bool = True,
+            device=None,
+            dtype=None,
+        ) -> None:
+            super().__init__()
 
-#             self.factory_kwargs = {"device": device, "dtype": MixedPrecisionOps._compute_dtype}
-#             # self.factory_kwargs = {"device": device, "dtype": dtype}
+            self.factory_kwargs = {"device": device, "dtype": MixedPrecisionOps._compute_dtype}
+            # self.factory_kwargs = {"device": device, "dtype": dtype}
 
-#             self.in_features = in_features
-#             self.out_features = out_features
-#             if bias:
-#                 self.bias = mint.nn.Parameter(torch.empty(out_features, **self.factory_kwargs))
-#             else:
-#                 self.register_parameter("bias", None)
+            self.in_features = in_features
+            self.out_features = out_features
+            if bias:
+                self.bias = mindspore.Parameter(mint.empty(out_features, **self.factory_kwargs))
+            else:
+                # self.register_parameter("bias", None)
+                self.bias = None
 
-#             self.tensor_class = None
+            self.tensor_class = None
 
-#         def reset_parameters(self):
-#             return None
+        def reset_parameters(self):
+            return None
 
-#         def _load_from_state_dict(self, state_dict, prefix, local_metadata,
-#                                   strict, missing_keys, unexpected_keys, error_msgs):
+        def _load_from_state_dict(self, state_dict, prefix, local_metadata,
+                                  strict, missing_keys, unexpected_keys, error_msgs):
 
-#             device = self.factory_kwargs["device"]
-#             layer_name = prefix.rstrip('.')
-#             weight_key = f"{prefix}weight"
-#             weight = state_dict.pop(weight_key, None)
-#             if weight is None:
-#                 raise ValueError(f"Missing weight for layer {layer_name}")
+            device = self.factory_kwargs["device"]
+            layer_name = prefix.rstrip('.')
+            weight_key = f"{prefix}weight"
+            weight = state_dict.pop(weight_key, None)
+            if weight is None:
+                raise ValueError(f"Missing weight for layer {layer_name}")
 
-#             manually_loaded_keys = [weight_key]
+            manually_loaded_keys = [weight_key]
 
-#             if layer_name not in MixedPrecisionOps._layer_quant_config:
-#                 self.weight = mint.nn.Parameter(weight.to(device=device, dtype=MixedPrecisionOps._compute_dtype), requires_grad=False)
-#             else:
-#                 quant_format = MixedPrecisionOps._layer_quant_config[layer_name].get("format", None)
-#                 if quant_format is None:
-#                     raise ValueError(f"Unknown quantization format for layer {layer_name}")
+            if layer_name not in MixedPrecisionOps._layer_quant_config:
+                self.weight = mindspore.Parameter(weight.to(device=device, dtype=MixedPrecisionOps._compute_dtype), requires_grad=False)
+            else:
+                quant_format = MixedPrecisionOps._layer_quant_config[layer_name].get("format", None)
+                if quant_format is None:
+                    raise ValueError(f"Unknown quantization format for layer {layer_name}")
 
-#                 mixin = QUANT_FORMAT_MIXINS[quant_format]
-#                 self.layout_type = mixin["layout_type"]
+                mixin = QUANT_FORMAT_MIXINS[quant_format]
+                self.layout_type = mixin["layout_type"]
 
-#                 scale_key = f"{prefix}weight_scale"
-#                 layout_params = {
-#                     'scale': state_dict.pop(scale_key, None),
-#                     'orig_dtype': MixedPrecisionOps._compute_dtype
-#                 }
-#                 if layout_params['scale'] is not None:
-#                     manually_loaded_keys.append(scale_key)
+                scale_key = f"{prefix}weight_scale"
+                layout_params = {
+                    'scale': state_dict.pop(scale_key, None),
+                    'orig_dtype': MixedPrecisionOps._compute_dtype
+                }
+                if layout_params['scale'] is not None:
+                    manually_loaded_keys.append(scale_key)
 
-#                 self.weight = mint.nn.Parameter(
-#                     QuantizedTensor(weight.to(device=device, dtype=mixin["dtype"]), self.layout_type, layout_params),
-#                     requires_grad=False
-#                 )
+                self.weight = mindspore.Parameter(
+                    QuantizedTensor(weight.to(device=device, dtype=mixin["dtype"]), self.layout_type, layout_params),
+                    requires_grad=False
+                )
 
-#                 for param_name, param_value in mixin["parameters"].items():
-#                     param_key = f"{prefix}{param_name}"
-#                     _v = state_dict.pop(param_key, None)
-#                     if _v is None:
-#                         continue
-#                     setattr(self, param_name, mint.nn.Parameter(_v.to(device=device), requires_grad=False))
-#                     manually_loaded_keys.append(param_key)
+                for param_name, param_value in mixin["parameters"].items():
+                    param_key = f"{prefix}{param_name}"
+                    _v = state_dict.pop(param_key, None)
+                    if _v is None:
+                        continue
+                    setattr(self, param_name, mindspore.Parameter(_v.to(device=device), requires_grad=False))
+                    manually_loaded_keys.append(param_key)
 
-#             super()._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
+            super()._load_from_state_dict(state_dict, prefix, local_metadata, strict, missing_keys, unexpected_keys, error_msgs)
 
-#             for key in manually_loaded_keys:
-#                 if key in missing_keys:
-#                     missing_keys.remove(key)
+            for key in manually_loaded_keys:
+                if key in missing_keys:
+                    missing_keys.remove(key)
 
-#         def _forward(self, input, weight, bias):
-#             return mint.functional.linear(input, weight, bias)
+        def _forward(self, input, weight, bias):
+            return mint.functional.linear(input, weight, bias)
 
-#         def forward_comfy_cast_weights(self, input):
-#             weight, bias, offload_stream = cast_bias_weight(self, input, offloadable=True)
-#             x = self._forward(input, weight, bias)
-#             uncast_bias_weight(self, weight, bias, offload_stream)
-#             return x
+        def forward_comfy_cast_weights(self, input):
+            weight, bias, offload_stream = cast_bias_weight(self, input, offloadable=True)
+            x = self._forward(input, weight, bias)
+            uncast_bias_weight(self, weight, bias, offload_stream)
+            return x
 
-#         def forward(self, input, *args, **kwargs):
-#             run_every_op()
+        def construct(self, input, *args, **kwargs):
+            run_every_op()
 
-#             if self.comfy_cast_weights or len(self.weight_function) > 0 or len(self.bias_function) > 0:
-#                 return self.forward_comfy_cast_weights(input, *args, **kwargs)
-#             if (getattr(self, 'layout_type', None) is not None and
-#                 getattr(self, 'input_scale', None) is not None and
-#                 not isinstance(input, QuantizedTensor)):
-#                 input = QuantizedTensor.from_float(input, self.layout_type, scale=self.input_scale, fp8_dtype=self.weight.dtype)
-#             return self._forward(input, self.weight, self.bias)
+            if self.comfy_cast_weights or len(self.weight_function) > 0 or len(self.bias_function) > 0:
+                return self.forward_comfy_cast_weights(input, *args, **kwargs)
+            if (getattr(self, 'layout_type', None) is not None and
+                getattr(self, 'input_scale', None) is not None and
+                not isinstance(input, QuantizedTensor)):
+                input = QuantizedTensor.from_float(input, self.layout_type, scale=self.input_scale, fp8_dtype=self.weight.dtype)
+            return self._forward(input, self.weight, self.bias)
 
 
-# def pick_operations(weight_dtype, compute_dtype, load_device=None, disable_fast_fp8=False, fp8_optimizations=False, scaled_fp8=None, model_config=None):
-#     if model_config and hasattr(model_config, 'layer_quant_config') and model_config.layer_quant_config:
-#         MixedPrecisionOps._layer_quant_config = model_config.layer_quant_config
-#         MixedPrecisionOps._compute_dtype = compute_dtype
-#         logging.info(f"Using mixed precision operations: {len(model_config.layer_quant_config)} quantized layers")
-#         return MixedPrecisionOps
+def pick_operations(weight_dtype, compute_dtype, load_device=None, disable_fast_fp8=False, fp8_optimizations=False, scaled_fp8=None, model_config=None):
+    if model_config and hasattr(model_config, 'layer_quant_config') and model_config.layer_quant_config:
+        MixedPrecisionOps._layer_quant_config = model_config.layer_quant_config
+        MixedPrecisionOps._compute_dtype = compute_dtype
+        logging.info(f"Using mixed precision operations: {len(model_config.layer_quant_config)} quantized layers")
+        return MixedPrecisionOps
 
-#     fp8_compute = comfy.model_management.supports_fp8_compute(load_device)
-#     if scaled_fp8 is not None:
-#         return scaled_fp8_ops(fp8_matrix_mult=fp8_compute and fp8_optimizations, scale_input=fp8_optimizations, override_dtype=scaled_fp8)
+    fp8_compute = comfy.model_management.supports_fp8_compute(None)
+    if scaled_fp8 is not None:
+        # return scaled_fp8_ops(fp8_matrix_mult=fp8_compute and fp8_optimizations, scale_input=fp8_optimizations, override_dtype=scaled_fp8)
+        raise NotImplementedError
 
-#     if (
-#         fp8_compute and
-#         (fp8_optimizations or PerformanceFeature.Fp8MatrixMultiplication in args.fast) and
-#         not disable_fast_fp8
-#     ):
-#         return fp8_ops
+    if (
+        fp8_compute and
+        (fp8_optimizations or PerformanceFeature.Fp8MatrixMultiplication in args.fast) and
+        not disable_fast_fp8
+    ):
+        # return fp8_ops
+        raise NotImplementedError
 
-#     if (
-#         PerformanceFeature.CublasOps in args.fast and
-#         CUBLAS_IS_AVAILABLE and
-#         weight_dtype == mindspore.float16 and
-#         (compute_dtype == mindspore.float16 or compute_dtype is None)
-#     ):
-#         logging.info("Using cublas ops")
-#         return cublas_ops
+    if (
+        PerformanceFeature.CublasOps in args.fast and
+        CUBLAS_IS_AVAILABLE and
+        weight_dtype == mindspore.float16 and
+        (compute_dtype == mindspore.float16 or compute_dtype is None)
+    ):
+        logging.info("Using cublas ops")
+        # return cublas_ops
+        raise NotImplementedError
 
-#     if compute_dtype is None or weight_dtype == compute_dtype:
-#         return disable_weight_init
+    if compute_dtype is None or weight_dtype == compute_dtype:
+        return disable_weight_init
 
-#     return manual_cast
+    return manual_cast

@@ -4,7 +4,9 @@ import comfy.supported_models_base
 import comfy.utils
 import math
 import logging
-import torch
+
+import mindspore
+from mindspore import mint
 
 
 def detect_layer_quantization(metadata):
@@ -70,7 +72,7 @@ def detect_unet_config(state_dict, key_prefix, metadata=None):
         if context_key in state_dict_keys:
             in_features = state_dict[context_key].shape[1]
             out_features = state_dict[context_key].shape[0]
-            unet_config["context_embedder_config"] = {"target": "torch.nn.Linear", "params": {"in_features": in_features, "out_features": out_features}}
+            unet_config["context_embedder_config"] = {"target": "mindspore.mint.nn.Linear", "params": {"in_features": in_features, "out_features": out_features}}
         num_patches_key = '{}pos_embed'.format(key_prefix)
         if num_patches_key in state_dict_keys:
             num_patches = state_dict[num_patches_key].shape[1]
@@ -229,7 +231,7 @@ def detect_unet_config(state_dict, key_prefix, metadata=None):
                 dit_config["nerf_max_freqs"] = 8
                 dit_config["nerf_tile_size"] = 512
                 dit_config["nerf_final_head_type"] = "conv" if f"{key_prefix}nerf_final_layer_conv.norm.scale" in state_dict_keys else "linear"
-                dit_config["nerf_embedder_dtype"] = torch.float32
+                dit_config["nerf_embedder_dtype"] = mindspore.float32
         else:
             dit_config["guidance_embed"] = "{}guidance_in.in_layer.weight".format(key_prefix) in state_dict_keys
         return dit_config
@@ -708,8 +710,8 @@ def model_config_from_unet(state_dict, unet_key_prefix, use_base_if_no_match=Fal
     if scaled_fp8_key in state_dict:
         scaled_fp8_weight = state_dict.pop(scaled_fp8_key)
         model_config.scaled_fp8 = scaled_fp8_weight.dtype
-        if model_config.scaled_fp8 == torch.float32:
-            model_config.scaled_fp8 = torch.float8_e4m3fn
+        if model_config.scaled_fp8 == mindspore.float32:
+            model_config.scaled_fp8 = mindspore.float8_e4m3fn
         if scaled_fp8_weight.nelement() == 2:
             model_config.optimizations["fp8"] = False
         else:
@@ -975,11 +977,11 @@ def convert_diffusers_mmdit(state_dict, output_prefix=""):
                 if offset is not None:
                     old_weight = out_sd.get(t[0], None)
                     if old_weight is None:
-                        old_weight = torch.empty_like(weight)
+                        old_weight = mint.empty_like(weight)
                     if old_weight.shape[offset[0]] < offset[1] + offset[2]:
                         exp = list(weight.shape)
                         exp[offset[0]] = offset[1] + offset[2]
-                        new = torch.empty(exp, device=weight.device, dtype=weight.dtype)
+                        new = mint.empty(exp, dtype=weight.dtype)
                         new[:old_weight.shape[0]] = old_weight
                         old_weight = new
 

@@ -151,7 +151,7 @@ class SDClipModel(mindspore.nn.Cell, ClipTokenWeightEncoder):
         self.options_default = (self.layer, self.layer_idx, self.return_projected_pooled)
 
     def freeze(self):
-        self.transformer = self.transformer.eval()
+        self.transformer = self.transformer.set_train(False)
         #self.train = disabled_train
         for param in self.parameters():
             param.requires_grad = False

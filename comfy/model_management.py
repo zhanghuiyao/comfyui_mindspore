@@ -241,14 +241,14 @@ DISABLE_SMART_MEMORY = args.disable_smart_memory
 if DISABLE_SMART_MEMORY:
     logging.info("Disabling smart memory management")
 
-def get_mindspore_device_name():    
+def get_mindspore_device_name(device):    
     if is_ascend_npu():
         return "Ascend"
     else:
         return "CPU"
 
 try:
-    logging.info("Device: {}".format(get_mindspore_device_name()))
+    logging.info("Device: {}".format(get_mindspore_device_name(None)))
 except:
     logging.warning("Could not pick default device.")
 

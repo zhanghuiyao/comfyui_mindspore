@@ -1,6 +1,8 @@
 import re
-import torch
 import logging
+
+import mindspore
+from mindspore import mint
 
 # conversion code from https://github.com/huggingface/diffusers/blob/main/scripts/convert_diffusers_to_original_stable_diffusion.py
 
@@ -122,7 +124,7 @@ def cat_tensors(tensors):
         x += t.shape[0]
 
     shape = [x] + list(tensors[0].shape)[1:]
-    out = torch.empty(shape, device=tensors[0].device, dtype=tensors[0].dtype)
+    out = mint.empty(shape, dtype=tensors[0].dtype)
 
     x = 0
     for t in tensors:

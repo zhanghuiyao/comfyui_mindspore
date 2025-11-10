@@ -1,19 +1,19 @@
-import torch
-from torch import nn
+import mindspore
+from mindspore import mint
 
 
-class LitEma(nn.Module):
+class LitEma(mint.nn.Cell):
     def __init__(self, model, decay=0.9999, use_num_upates=True):
         super().__init__()
         if decay < 0.0 or decay > 1.0:
             raise ValueError('Decay must be between 0 and 1')
 
         self.m_name2s_name = {}
-        self.register_buffer('decay', torch.tensor(decay, dtype=torch.float32))
-        self.register_buffer('num_updates', torch.tensor(0, dtype=torch.int) if use_num_upates
-        else torch.tensor(-1, dtype=torch.int))
+        self.register_buffer('decay', mindspore.tensor(decay, dtype=mindspore.float32))
+        self.register_buffer('num_updates', mindspore.tensor(0, dtype=mindspore.int) if use_num_upates
+        else mindspore.tensor(-1, dtype=mindspore.int))
 
-        for name, p in model.named_parameters():
+        for name, p in model.parameters_and_names():
             if p.requires_grad:
                 # remove as '.'-character is not allowed in buffers
                 s_name = name.replace('.', '')
@@ -24,9 +24,9 @@ class LitEma(nn.Module):
 
     def reset_num_updates(self):
         del self.num_updates
-        self.register_buffer('num_updates', torch.tensor(0, dtype=torch.int))
+        self.register_buffer('num_updates', mindspore.tensor(0, dtype=mindspore.int))
 
-    def forward(self, model):
+    def construct(self, model):
         decay = self.decay
 
         if self.num_updates >= 0:
@@ -35,24 +35,26 @@ class LitEma(nn.Module):
 
         one_minus_decay = 1.0 - decay
 
-        with torch.no_grad():
-            m_param = dict(model.named_parameters())
+        with mindspore._no_grad():
+            m_param = dict(model.parameters_and_names())
             shadow_params = dict(self.named_buffers())
 
             for key in m_param:
                 if m_param[key].requires_grad:
                     sname = self.m_name2s_name[key]
                     shadow_params[sname] = shadow_params[sname].type_as(m_param[key])
-                    shadow_params[sname].sub_(one_minus_decay * (shadow_params[sname] - m_param[key]))
+                    # shadow_params[sname].sub_(one_minus_decay * (shadow_params[sname] - m_param[key]))
+                    shadow_params[sname] -= (one_minus_decay * (shadow_params[sname] - m_param[key]))
                 else:
                     assert not key in self.m_name2s_name
 
     def copy_to(self, model):
-        m_param = dict(model.named_parameters())
+        m_param = dict(model.parameters_and_names())
         shadow_params = dict(self.named_buffers())
         for key in m_param:
             if m_param[key].requires_grad:
-                m_param[key].data.copy_(shadow_params[self.m_name2s_name[key]].data)
+                # m_param[key].data.copy_(shadow_params[self.m_name2s_name[key]].data)
+                m_param[key].set_data(shadow_params[self.m_name2s_name[key]].data)
             else:
                 assert not key in self.m_name2s_name
 
@@ -60,7 +62,7 @@ class LitEma(nn.Module):
         """
         Save the current parameters for restoring later.
         Args:
-          parameters: Iterable of `torch.nn.Parameter`; the parameters to be
+          parameters: Iterable of `mindspore.Parameter`; the parameters to be
             temporarily stored.
         """
         self.collected_params = [param.clone() for param in parameters]
@@ -73,8 +75,9 @@ class LitEma(nn.Module):
         `copy_to` method. After validation (or model saving), use this to
         restore the former parameters.
         Args:
-          parameters: Iterable of `torch.nn.Parameter`; the parameters to be
+          parameters: Iterable of `mindspore.Parameter`; the parameters to be
             updated with the stored parameters.
         """
         for c_param, param in zip(self.collected_params, parameters):
-            param.data.copy_(c_param.data)
+            # param.data.copy_(c_param.data)
+            param.set_data(c_param.data)

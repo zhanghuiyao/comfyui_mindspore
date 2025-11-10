@@ -22,11 +22,11 @@ from mindone.safetensors.mindspore import load_file
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "comfy"))
 
 import comfy.diffusers_load
-import comfy.samplers
-import comfy.sample
+# import comfy.samplers
+# import comfy.sample
 import comfy.sd
 import comfy.utils
-import comfy.controlnet
+# import comfy.controlnet
 from comfy.comfy_types import IO, ComfyNodeABC, InputTypeDict, FileLocator
 from comfy_api.internal import register_versions, ComfyAPIWithVersion
 from comfy_api.version_list import supported_versions
@@ -672,7 +672,7 @@ class LoadLatent:
 #                 self.loaded_lora = None
 
 #         if lora is None:
-#             lora = comfy.utils.load_torch_file(lora_path, safe_load=True)
+#             lora = comfy.utils.load_mindspore_file(lora_path, safe_load=True)
 #             self.loaded_lora = (lora_path, lora)
 
 #         model_lora, clip_lora = comfy.sd.load_lora_for_models(model, clip, lora, strength_model, strength_clip)
@@ -741,11 +741,11 @@ class VAELoader:
         encoder = next(filter(lambda a: a.startswith("{}_encoder.".format(name)), approx_vaes))
         decoder = next(filter(lambda a: a.startswith("{}_decoder.".format(name)), approx_vaes))
 
-        enc = comfy.utils.load_torch_file(folder_paths.get_full_path_or_raise("vae_approx", encoder))
+        enc = comfy.utils.load_mindspore_file(folder_paths.get_full_path_or_raise("vae_approx", encoder))
         for k in enc:
             sd["taesd_encoder.{}".format(k)] = enc[k]
 
-        dec = comfy.utils.load_torch_file(folder_paths.get_full_path_or_raise("vae_approx", decoder))
+        dec = comfy.utils.load_mindspore_file(folder_paths.get_full_path_or_raise("vae_approx", decoder))
         for k in dec:
             sd["taesd_decoder.{}".format(k)] = dec[k]
 
@@ -780,7 +780,7 @@ class VAELoader:
             sd = self.load_taesd(vae_name)
         else:
             vae_path = folder_paths.get_full_path_or_raise("vae", vae_name)
-            sd = comfy.utils.load_torch_file(vae_path)
+            sd = comfy.utils.load_mindspore_file(vae_path)
         vae = comfy.sd.VAE(sd=sd)
         vae.throw_exception_if_invalid()
         return (vae,)
@@ -914,12 +914,12 @@ class UNETLoader:
     def load_unet(self, unet_name, weight_dtype):
         model_options = {}
         # if weight_dtype == "fp8_e4m3fn":
-        #     model_options["dtype"] = torch.float8_e4m3fn
+        #     model_options["dtype"] = mindspore.float8_e4m3fn
         # elif weight_dtype == "fp8_e4m3fn_fast":
-        #     model_options["dtype"] = torch.float8_e4m3fn
+        #     model_options["dtype"] = mindspore.float8_e4m3fn
         #     model_options["fp8_optimizations"] = True
         # elif weight_dtype == "fp8_e5m2":
-        #     model_options["dtype"] = torch.float8_e5m2
+        #     model_options["dtype"] = mindspore.float8_e5m2
 
         unet_path = folder_paths.get_full_path_or_raise("diffusion_models", unet_name)
         model = comfy.sd.load_diffusion_model(unet_path, model_options=model_options)
@@ -946,7 +946,7 @@ class UNETLoader:
 
 #         model_options = {}
 #         if device == "cpu":
-#             model_options["load_device"] = model_options["offload_device"] = torch.device("cpu")
+#             model_options["load_device"] = model_options["offload_device"] = None  #torch.device("cpu")
 
 #         clip_path = folder_paths.get_full_path_or_raise("text_encoders", clip_name)
 #         clip = comfy.sd.load_clip(ckpt_paths=[clip_path], embedding_directory=folder_paths.get_folder_paths("embeddings"), clip_type=clip_type, model_options=model_options)
@@ -976,8 +976,6 @@ class DualCLIPLoader:
         clip_path2 = folder_paths.get_full_path_or_raise("text_encoders", clip_name2)
 
         model_options = {}
-        # if device == "cpu":
-        #     model_options["load_device"] = model_options["offload_device"] = torch.device("cpu")
 
         clip = comfy.sd.load_clip(ckpt_paths=[clip_path1, clip_path2], embedding_directory=folder_paths.get_folder_paths("embeddings"), clip_type=clip_type, model_options=model_options)
         return (clip,)
@@ -1071,15 +1069,15 @@ class DualCLIPLoader:
 #                 mask = keys.get("attention_mask", None)
 #                 # create a default mask if it doesn't exist
 #                 if mask is None:
-#                     mask = torch.zeros((txt.shape[0], n_txt + n_ref, n_txt + n_ref), dtype=torch.float16)
+#                     mask = torch.zeros((txt.shape[0], n_txt + n_ref, n_txt + n_ref), dtype=mindspore.float16)
 #                 # convert the mask dtype, because it might be boolean
 #                 # we want it to be interpreted as a bias
 #                 if mask.dtype == torch.bool:
 #                     # log(True) = log(1) = 0
 #                     # log(False) = log(0) = -inf
-#                     mask = torch.log(mask.to(dtype=torch.float16))
+#                     mask = torch.log(mask.to(dtype=mindspore.float16))
 #                 # now we make the mask bigger to add space for our new tokens
-#                 new_mask = torch.zeros((txt.shape[0], n_txt + n + n_ref, n_txt + n + n_ref), dtype=torch.float16)
+#                 new_mask = torch.zeros((txt.shape[0], n_txt + n + n_ref, n_txt + n + n_ref), dtype=mindspore.float16)
 #                 # copy over the old mask, in quandrants
 #                 new_mask[:, :n_txt, :n_txt] = mask[:, :n_txt, :n_txt]
 #                 new_mask[:, :n_txt, n_txt+n:] = mask[:, :n_txt, n_txt:]
@@ -1613,19 +1611,19 @@ class SaveImage:
 
         return { "ui": { "images": results } }
 
-# class PreviewImage(SaveImage):
-#     def __init__(self):
-#         self.output_dir = folder_paths.get_temp_directory()
-#         self.type = "temp"
-#         self.prefix_append = "_temp_" + ''.join(random.choice("abcdefghijklmnopqrstupvxyz") for x in range(5))
-#         self.compress_level = 1
+class PreviewImage(SaveImage):
+    def __init__(self):
+        self.output_dir = folder_paths.get_temp_directory()
+        self.type = "temp"
+        self.prefix_append = "_temp_" + ''.join(random.choice("abcdefghijklmnopqrstupvxyz") for x in range(5))
+        self.compress_level = 1
 
-#     @classmethod
-#     def INPUT_TYPES(s):
-#         return {"required":
-#                     {"images": ("IMAGE", ), },
-#                 "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"},
-#                 }
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required":
+                    {"images": ("IMAGE", ), },
+                "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"},
+                }
 
 # class LoadImage:
 #     @classmethod
@@ -1675,7 +1673,7 @@ class SaveImage:
 #                 mask = np.array(i.convert('RGBA').getchannel('A')).astype(np.float32) / 255.0
 #                 mask = 1. - torch.from_numpy(mask)
 #             else:
-#                 mask = torch.zeros((64,64), dtype=torch.float32, device="cpu")
+#                 mask = torch.zeros((64,64), dtype=mindspore.float32, device="cpu")
 #             output_images.append(image)
 #             output_masks.append(mask.unsqueeze(0))
 
@@ -1734,7 +1732,7 @@ class SaveImage:
 #             if c == 'A':
 #                 mask = 1. - mask
 #         else:
-#             mask = torch.zeros((64,64), dtype=torch.float32, device="cpu")
+#             mask = torch.zeros((64,64), dtype=mindspore.float32, device="cpu")
 #         return (mask.unsqueeze(0),)
 
 #     @classmethod
@@ -1904,19 +1902,19 @@ class SaveImage:
 
 #         new_image = torch.ones(
 #             (d1, d2 + top + bottom, d3 + left + right, d4),
-#             dtype=torch.float32,
+#             dtype=mindspore.float32,
 #         ) * 0.5
 
 #         new_image[:, top:top + d2, left:left + d3, :] = image
 
 #         mask = torch.ones(
 #             (d2 + top + bottom, d3 + left + right),
-#             dtype=torch.float32,
+#             dtype=mindspore.float32,
 #         )
 
 #         t = torch.zeros(
 #             (d2, d3),
-#             dtype=torch.float32
+#             dtype=mindspore.float32
 #         )
 
 #         if feathering > 0 and feathering * 2 < d2 and feathering * 2 < d3:

@@ -161,7 +161,7 @@ def attention_basic(q, k, v, heads, mask=None, attn_precision=None, skip_reshape
             
             # mask = repeat(mask, 'b j -> (b h) () j', h=h)
             _b, _j = mask.shape
-            mask = mask[:, None, :].expand(_b*h, 1, _j)
+            mask = mask[:, None, :].expand((_b*h, 1, _j))
 
             sim.masked_fill_(~mask, max_neg_value)
         else:
@@ -169,7 +169,7 @@ def attention_basic(q, k, v, heads, mask=None, attn_precision=None, skip_reshape
                 bs = 1
             else:
                 bs = mask.shape[0]
-            mask = mask.reshape(bs, -1, mask.shape[-2], mask.shape[-1]).expand(b, heads, -1, -1).reshape(-1, mask.shape[-2], mask.shape[-1])
+            mask = mask.reshape(bs, -1, mask.shape[-2], mask.shape[-1]).expand((b, heads, -1, -1)).reshape(-1, mask.shape[-2], mask.shape[-1])
             sim.add_(mask)
 
     # attention, what we cannot get enough of
@@ -667,13 +667,13 @@ class SpatialVideoTransformer(SpatialTransformer):
             #     time_context_first_timestep, "b ... -> (b n) ...", n=h * w
             # )
             _shape = time_context_first_timestep.shape
-            time_context = time_context.expand(_shape[0]*h*w, *_shape[1:])
+            time_context = time_context.expand((_shape[0]*h*w, *_shape[1:]))
 
         elif time_context is not None and not self.use_spatial_context:
 
             # time_context = repeat(time_context, "b ... -> (b n) ...", n=h * w)
             _shape = time_context.shape
-            time_context = time_context.expand(_shape[0]*h*w, *_shape[1:])
+            time_context = time_context.expand((_shape[0]*h*w, *_shape[1:]))
 
             if time_context.ndim == 2:
                 # time_context = rearrange(time_context, "b c -> b 1 c")
@@ -695,7 +695,7 @@ class SpatialVideoTransformer(SpatialTransformer):
         # num_frames = repeat(num_frames, "t -> b t", b=x.shape[0] // timesteps)
         # num_frames = rearrange(num_frames, "b t -> (b t)")
         b, t = x.shape[0] // timesteps, num_frames.shape[0]
-        num_frames = num_frames[None, :].expand(b, t).view(-1)
+        num_frames = num_frames[None, :].expand((b, t)).view(-1)
 
         t_emb = timestep_embedding(num_frames, self.in_channels, repeat_only=False, max_period=self.max_time_embed_period).to(x.dtype)
         emb = self.time_pos_embed(t_emb)

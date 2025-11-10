@@ -156,8 +156,8 @@ import app.logger
 import hook_breaker_ac10a0
 
 def cuda_malloc_warning():
-    device = comfy.model_management.get_torch_device()
-    device_name = comfy.model_management.get_torch_device_name(device)
+    device = comfy.model_management.get_mindspore_device()
+    device_name = comfy.model_management.get_mindspore_device_name(None)
     cuda_malloc_warning = False
     if "cudaMallocAsync" in device_name:
         for b in cuda_malloc.blacklist:

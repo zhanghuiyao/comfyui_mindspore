@@ -227,7 +227,7 @@ class T5Stack(mindspore.nn.Cell):
             intermediate = self.final_layer_norm(intermediate)
         return x, intermediate
 
-class T5(mindspore.nn.Module):
+class T5(mindspore.nn.Cell):
     def __init__(self, config_dict, dtype, operations):
         super().__init__()
         self.num_layers = config_dict["num_layers"]

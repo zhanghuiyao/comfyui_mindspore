@@ -34,7 +34,7 @@ class BasicScheduler:
                 return (mindspore.Tensor([]),)
             total_steps = int(steps/denoise)
 
-        sigmas = comfy.samplers.calculate_sigmas(model.get_model_object("model_sampling"), scheduler, total_steps).cpu()
+        sigmas = comfy.samplers.calculate_sigmas(model.get_model_object("model_sampling"), scheduler, total_steps)
         sigmas = sigmas[-(steps + 1):]
         return (sigmas, )
 
@@ -692,27 +692,27 @@ class BasicGuider:
         guider.set_conds(conditioning)
         return (guider,)
 
-# class CFGGuider:
-#     @classmethod
-#     def INPUT_TYPES(s):
-#         return {"required":
-#                     {"model": ("MODEL",),
-#                     "positive": ("CONDITIONING", ),
-#                     "negative": ("CONDITIONING", ),
-#                     "cfg": ("FLOAT", {"default": 8.0, "min": 0.0, "max": 100.0, "step":0.1, "round": 0.01}),
-#                      }
-#                 }
+class CFGGuider:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required":
+                    {"model": ("MODEL",),
+                    "positive": ("CONDITIONING", ),
+                    "negative": ("CONDITIONING", ),
+                    "cfg": ("FLOAT", {"default": 8.0, "min": 0.0, "max": 100.0, "step":0.1, "round": 0.01}),
+                     }
+                }
 
-#     RETURN_TYPES = ("GUIDER",)
+    RETURN_TYPES = ("GUIDER",)
 
-#     FUNCTION = "get_guider"
-#     CATEGORY = "sampling/custom_sampling/guiders"
+    FUNCTION = "get_guider"
+    CATEGORY = "sampling/custom_sampling/guiders"
 
-#     def get_guider(self, model, positive, negative, cfg):
-#         guider = comfy.samplers.CFGGuider(model)
-#         guider.set_conds(positive, negative)
-#         guider.set_cfg(cfg)
-#         return (guider,)
+    def get_guider(self, model, positive, negative, cfg):
+        guider = comfy.samplers.CFGGuider(model)
+        guider.set_conds(positive, negative)
+        guider.set_cfg(cfg)
+        return (guider,)
 
 # class Guider_DualCFG(comfy.samplers.CFGGuider):
 #     def set_cfg(self, cfg1, cfg2, nested=False):

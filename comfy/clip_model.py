@@ -122,7 +122,7 @@ class CLIPTextModel_(mindspore.nn.Cell):
 
         mask = None
         if attention_mask is not None:
-            mask = 1.0 - attention_mask.to(x.dtype).reshape((attention_mask.shape[0], 1, -1, attention_mask.shape[-1])).expand(attention_mask.shape[0], 1, attention_mask.shape[-1], attention_mask.shape[-1])
+            mask = 1.0 - attention_mask.to(x.dtype).reshape((attention_mask.shape[0], 1, -1, attention_mask.shape[-1])).expand((attention_mask.shape[0], 1, attention_mask.shape[-1], attention_mask.shape[-1]))
             mask = mask.masked_fill(mask.to(mindspore.bool), -dtype_to_max(x.type))
 
         causal_mask = mint.full((x.shape[1], x.shape[1]), -x.type(x.dtype), dtype=x.dtype).triu(1)
@@ -191,7 +191,7 @@ class CLIPVisionEmbeddings(mindspore.nn.Cell):
     def construct(self, pixel_values):
         embeds = self.patch_embedding(pixel_values).flatten(2).transpose(1, 2)
         if self.class_embedding is not None:
-            embeds = mint.cat([comfy.ops.cast_to_input(self.class_embedding, embeds).expand(pixel_values.shape[0], 1, -1), embeds], dim=1)
+            embeds = mint.cat([comfy.ops.cast_to_input(self.class_embedding, embeds).expand((pixel_values.shape[0], 1, -1)), embeds], dim=1)
         return embeds + comfy.ops.cast_to_input(self.position_embedding.weight, embeds)
 
 

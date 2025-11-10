@@ -742,8 +742,8 @@ def bislerp(samples, width, height):
         b2_normalized = b2 / b2_norms
 
         #zero when norms are zero
-        b1_normalized[b1_norms.expand(-1,c) == 0.0] = 0.0
-        b2_normalized[b2_norms.expand(-1,c) == 0.0] = 0.0
+        b1_normalized[b1_norms.expand((-1,c)) == 0.0] = 0.0
+        b2_normalized[b2_norms.expand((-1,c)) == 0.0] = 0.0
 
         #slerp
         dot = (b1_normalized*b2_normalized).sum(1)
@@ -752,7 +752,7 @@ def bislerp(samples, width, height):
 
         #technically not mathematically correct, but more pleasing?
         res = (mint.sin((1.0-r.squeeze(1))*omega)/so).unsqueeze(1)*b1_normalized + (mint.sin(r.squeeze(1)*omega)/so).unsqueeze(1) * b2_normalized
-        res *= (b1_norms * (1.0-r) + b2_norms * r).expand(-1,c)
+        res *= (b1_norms * (1.0-r) + b2_norms * r).expand((-1,c))
 
         #edge cases for same or polar opposites
         res[dot > 1 - 1e-5] = b1[dot > 1 - 1e-5]

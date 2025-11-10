@@ -1,5 +1,5 @@
 from comfy import sd1_clip
-# from comfy import sdxl_clip
+from comfy import sdxl_clip
 from transformers import T5TokenizerFast
 import comfy.text_encoders.t5
 
@@ -22,17 +22,17 @@ class T5XXLModel(sd1_clip.SDClipModel):
         super().__init__(layer=layer, layer_idx=layer_idx, textmodel_json_config=textmodel_json_config, dtype=dtype, special_tokens={"end": 1, "pad": 0}, model_class=comfy.text_encoders.t5.T5, enable_attention_masks=attention_mask, return_attention_masks=attention_mask, model_options=model_options)
 
 
-# def t5_xxl_detect(state_dict, prefix=""):
-#     out = {}
-#     t5_key = "{}encoder.final_layer_norm.weight".format(prefix)
-#     if t5_key in state_dict:
-#         out["dtype_t5"] = state_dict[t5_key].dtype
+def t5_xxl_detect(state_dict, prefix=""):
+    out = {}
+    t5_key = "{}encoder.final_layer_norm.weight".format(prefix)
+    if t5_key in state_dict:
+        out["dtype_t5"] = state_dict[t5_key].dtype
 
-#     scaled_fp8_key = "{}scaled_fp8".format(prefix)
-#     if scaled_fp8_key in state_dict:
-#         out["t5xxl_scaled_fp8"] = state_dict[scaled_fp8_key].dtype
+    scaled_fp8_key = "{}scaled_fp8".format(prefix)
+    if scaled_fp8_key in state_dict:
+        out["t5xxl_scaled_fp8"] = state_dict[scaled_fp8_key].dtype
 
-#     return out
+    return out
 
 # class T5XXLTokenizer(sd1_clip.SDTokenizer):
 #     def __init__(self, embedding_directory=None, tokenizer_data={}, min_length=77, max_length=99999999):

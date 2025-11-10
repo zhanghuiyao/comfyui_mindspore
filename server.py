@@ -566,13 +566,13 @@ class PromptServer():
 
         @routes.get("/system_stats")
         async def system_stats(request):
-            device = comfy.model_management.get_torch_device()
-            device_name = comfy.model_management.get_torch_device_name(device)
-            cpu_device = comfy.model_management.torch.device("cpu")
-            ram_total = comfy.model_management.get_total_memory(cpu_device)
-            ram_free = comfy.model_management.get_free_memory(cpu_device)
-            vram_total, torch_vram_total = comfy.model_management.get_total_memory(device, torch_total_too=True)
-            vram_free, torch_vram_free = comfy.model_management.get_free_memory(device, torch_free_too=True)
+            device = comfy.model_management.get_mindspore_device()
+            device_name = comfy.model_management.get_mindspore_device_name(None)
+            cpu_device = None  #comfy.model_management.torch.device("cpu")
+            ram_total = comfy.model_management.get_total_memory(None)
+            ram_free = comfy.model_management.get_free_memory(None)
+            vram_total, mindspore_vram_total = comfy.model_management.get_total_memory(None, mindspore_total_too=True)
+            vram_free, mindspore_vram_free = comfy.model_management.get_free_memory(None, mindspore_free_too=True)
             required_frontend_version = FrontendManager.get_required_frontend_version()
             installed_templates_version = FrontendManager.get_installed_templates_version()
             required_templates_version = FrontendManager.get_required_templates_version()
@@ -587,19 +587,19 @@ class PromptServer():
                     "installed_templates_version": installed_templates_version,
                     "required_templates_version": required_templates_version,
                     "python_version": sys.version,
-                    "pytorch_version": comfy.model_management.torch_version,
+                    "mindspore_version": comfy.model_management.mindspore_version,
                     "embedded_python": os.path.split(os.path.split(sys.executable)[0])[1] == "python_embeded",
                     "argv": sys.argv
                 },
                 "devices": [
                     {
                         "name": device_name,
-                        "type": device.type,
-                        "index": device.index,
+                        "type": None,  #device.type,
+                        "index": None,  #device.index,
                         "vram_total": vram_total,
                         "vram_free": vram_free,
-                        "torch_vram_total": torch_vram_total,
-                        "torch_vram_free": torch_vram_free,
+                        "mindspore_vram_total": mindspore_vram_total,
+                        "mindspore_vram_free": mindspore_vram_free,
                     }
                 ]
             }

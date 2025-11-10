@@ -34,8 +34,8 @@ class FluxTokenizer:
         return {}
 
 
-class FluxClipModel(mindspore.nn.Module):
-    def __init__(self, dtype_t5=None, dtype=None, model_options={}):
+class FluxClipModel(mindspore.nn.Cell):
+    def __init__(self, dtype_t5=None, device=None, dtype=None, model_options={}):
         super().__init__()
         dtype_t5 = comfy.model_management.pick_weight_dtype(dtype_t5, dtype)
         self.clip_l = sd1_clip.SDClipModel(dtype=dtype, return_projected_pooled=False, model_options=model_options)
@@ -66,10 +66,10 @@ class FluxClipModel(mindspore.nn.Module):
 
 def flux_clip(dtype_t5=None, t5xxl_scaled_fp8=None):
     class FluxClipModel_(FluxClipModel):
-        def __init__(self, dtype=None, model_options={}):
+        def __init__(self, device=None, dtype=None, model_options={}):
             if t5xxl_scaled_fp8 is not None and "t5xxl_scaled_fp8" not in model_options:
                 # model_options = model_options.copy()
                 # model_options["t5xxl_scaled_fp8"] = t5xxl_scaled_fp8
                 raise NotImplementedError
-            super().__init__(dtype_t5=dtype_t5, dtype=dtype, model_options=model_options)
+            super().__init__(dtype_t5=dtype_t5, device=None, dtype=dtype, model_options=model_options)
     return FluxClipModel_

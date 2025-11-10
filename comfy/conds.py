@@ -1,7 +1,9 @@
-import torch
 import math
 import comfy.utils
 import logging
+
+import mindspore
+from mindspore import mint
 
 
 class CONDRegular:
@@ -17,16 +19,13 @@ class CONDRegular:
     def can_concat(self, other):
         if self.cond.shape != other.cond.shape:
             return False
-        if self.cond.device != other.cond.device:
-            logging.warning("WARNING: conds not on same device, skipping concat.")
-            return False
         return True
 
     def concat(self, others):
         conds = [self.cond]
         for x in others:
             conds.append(x.cond)
-        return torch.cat(conds)
+        return mint.cat(conds)
 
     def size(self):
         return list(self.cond.size())
@@ -55,9 +54,6 @@ class CONDCrossAttn(CONDRegular):
             diff = mult_min // min(s1[1], s2[1])
             if diff > 4: #arbitrary limit on the padding because it's probably going to impact performance negatively if it's too much
                 return False
-        if self.cond.device != other.cond.device:
-            logging.warning("WARNING: conds not on same device: skipping concat.")
-            return False
         return True
 
     def concat(self, others):
@@ -73,7 +69,7 @@ class CONDCrossAttn(CONDRegular):
             if c.shape[1] < crossattn_max_len:
                 c = c.repeat(1, crossattn_max_len // c.shape[1], 1) #padding with repeat doesn't change result
             out.append(c)
-        return torch.cat(out)
+        return mint.cat(out)
 
 
 class CONDConstant(CONDRegular):
@@ -121,7 +117,7 @@ class CONDList(CONDRegular):
             o = [self.cond[i]]
             for x in others:
                 o.append(x.cond[i])
-            out.append(torch.cat(o))
+            out.append(mint.cat(o))
 
         return out
 

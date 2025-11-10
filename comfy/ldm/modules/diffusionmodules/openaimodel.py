@@ -8,7 +8,7 @@ from mindspore.mint import nn
 from mindspore.mint import functional as F
 
 from .util import (
-    checkpoint,
+    # checkpoint,
     avg_pool_nd,
     timestep_embedding,
     AlphaBlender,
@@ -237,9 +237,10 @@ class ResBlock(TimestepBlock):
         :param emb: an [N x emb_channels] Tensor of timestep embeddings.
         :return: an [N x C x ...] Tensor of outputs.
         """
-        return checkpoint(
-            self._forward, (x, emb), self.parameters(), self.use_checkpoint
-        )
+        # return checkpoint(
+        #     self._forward, (x, emb), self.parameters(), self.use_checkpoint
+        # )
+        return mindspore.recompute(self._forward, x, emb)
 
 
     def _forward(self, x, emb):

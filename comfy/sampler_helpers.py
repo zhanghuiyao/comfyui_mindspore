@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from comfy.controlnet import ControlBase
 
 def prepare_mask(noise_mask, shape, device):
-    return comfy.utils.reshape_mask(noise_mask, shape).to(device)
+    return comfy.utils.reshape_mask(noise_mask, shape)
 
 def get_models_from_cond(cond, model_type):
     models = []

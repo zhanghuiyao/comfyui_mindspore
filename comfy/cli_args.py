@@ -110,7 +110,7 @@ cache_group.add_argument("--cache-ram", nargs='?', const=4.0, type=float, defaul
 attn_group = parser.add_mutually_exclusive_group()
 attn_group.add_argument("--use-split-cross-attention", action="store_true", help="Use the split cross attention optimization. Ignored when xformers is used.")
 attn_group.add_argument("--use-quad-cross-attention", action="store_true", help="Use the sub-quadratic cross attention optimization . Ignored when xformers is used.")
-attn_group.add_argument("--use-pytorch-cross-attention", action="store_true", help="Use the new pytorch 2.0 cross attention function.")
+attn_group.add_argument("--use-mindspore-cross-attention", action="store_true", help="Use the mindspore cross attention function.")
 attn_group.add_argument("--use-sage-attention", action="store_true", help="Use sage attention.")
 attn_group.add_argument("--use-flash-attention", action="store_true", help="Use FlashAttention.")
 
@@ -138,7 +138,7 @@ parser.add_argument("--force-non-blocking", action="store_true", help="Force Com
 parser.add_argument("--default-hashing-function", type=str, choices=['md5', 'sha1', 'sha256', 'sha512'], default='sha256', help="Allows you to choose the hash function to use for duplicate filename / contents comparison. Default is sha256.")
 
 parser.add_argument("--disable-smart-memory", action="store_true", help="Force ComfyUI to agressively offload to regular ram instead of keeping models in vram when it can.")
-parser.add_argument("--deterministic", action="store_true", help="Make pytorch use slower deterministic algorithms when it can. Note that this might not make images deterministic in all cases.")
+parser.add_argument("--deterministic", action="store_true", help="Make mindspore use slower deterministic algorithms when it can. Note that this might not make images deterministic in all cases.")
 
 class PerformanceFeature(enum.Enum):
     Fp16Accumulation = "fp16_accumulation"

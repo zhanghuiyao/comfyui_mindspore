@@ -2,9 +2,11 @@
 
 from dataclasses import dataclass
 
-import torch
-from torch import Tensor, nn
-from einops import rearrange, repeat
+import mindspore
+from mindspore import Tensor, mint
+from mindspore.mint import nn
+
+# from einops import rearrange, repeat
 import comfy.ldm.common_dit
 import comfy.patcher_extension
 
@@ -35,7 +37,7 @@ class FluxParams:
     guidance_embed: bool
 
 
-class Flux(nn.Module):
+class Flux(nn.Cell):
     """
     Transformer model for flow matching on sequences.
     """
@@ -58,36 +60,36 @@ class Flux(nn.Module):
         self.hidden_size = params.hidden_size
         self.num_heads = params.num_heads
         self.pe_embedder = EmbedND(dim=pe_dim, theta=params.theta, axes_dim=params.axes_dim)
-        self.img_in = operations.Linear(self.in_channels, self.hidden_size, bias=True, dtype=dtype, device=device)
-        self.time_in = MLPEmbedder(in_dim=256, hidden_dim=self.hidden_size, dtype=dtype, device=device, operations=operations)
-        self.vector_in = MLPEmbedder(params.vec_in_dim, self.hidden_size, dtype=dtype, device=device, operations=operations)
+        self.img_in = operations.Linear(self.in_channels, self.hidden_size, bias=True, dtype=dtype)
+        self.time_in = MLPEmbedder(in_dim=256, hidden_dim=self.hidden_size, dtype=dtype, device=None, operations=operations)
+        self.vector_in = MLPEmbedder(params.vec_in_dim, self.hidden_size, dtype=dtype, device=None, operations=operations)
         self.guidance_in = (
-            MLPEmbedder(in_dim=256, hidden_dim=self.hidden_size, dtype=dtype, device=device, operations=operations) if params.guidance_embed else nn.Identity()
+            MLPEmbedder(in_dim=256, hidden_dim=self.hidden_size, dtype=dtype, device=None, operations=operations) if params.guidance_embed else nn.Identity()
         )
-        self.txt_in = operations.Linear(params.context_in_dim, self.hidden_size, dtype=dtype, device=device)
+        self.txt_in = operations.Linear(params.context_in_dim, self.hidden_size, dtype=dtype)
 
-        self.double_blocks = nn.ModuleList(
+        self.double_blocks = mindspore.nn.CellList(
             [
                 DoubleStreamBlock(
                     self.hidden_size,
                     self.num_heads,
                     mlp_ratio=params.mlp_ratio,
                     qkv_bias=params.qkv_bias,
-                    dtype=dtype, device=device, operations=operations
+                    dtype=dtype, device=None, operations=operations
                 )
                 for _ in range(params.depth)
             ]
         )
 
-        self.single_blocks = nn.ModuleList(
+        self.single_blocks = mindspore.nn.CellList(
             [
-                SingleStreamBlock(self.hidden_size, self.num_heads, mlp_ratio=params.mlp_ratio, dtype=dtype, device=device, operations=operations)
+                SingleStreamBlock(self.hidden_size, self.num_heads, mlp_ratio=params.mlp_ratio, dtype=dtype, device=None, operations=operations)
                 for _ in range(params.depth_single_blocks)
             ]
         )
 
         if final_layer:
-            self.final_layer = LastLayer(self.hidden_size, 1, self.out_channels, dtype=dtype, device=device, operations=operations)
+            self.final_layer = LastLayer(self.hidden_size, 1, self.out_channels, dtype=dtype, device=None, operations=operations)
 
     def forward_orig(
         self,
@@ -104,7 +106,7 @@ class Flux(nn.Module):
     ) -> Tensor:
 
         if y is None:
-            y = torch.zeros((img.shape[0], self.params.vec_in_dim), device=img.device, dtype=img.dtype)
+            y = mint.zeros((img.shape[0], self.params.vec_in_dim), dtype=img.dtype)
 
         patches = transformer_options.get("patches", {})
         patches_replace = transformer_options.get("patches_replace", {})
@@ -130,7 +132,7 @@ class Flux(nn.Module):
                 txt_ids = out["txt_ids"]
 
         if img_ids is not None:
-            ids = torch.cat((txt_ids, img_ids), dim=1)
+            ids = mint.cat((txt_ids, img_ids), dim=1)
             pe = self.pe_embedder(ids)
         else:
             pe = None
@@ -172,10 +174,10 @@ class Flux(nn.Module):
                     if add is not None:
                         img[:, :add.shape[1]] += add
 
-        if img.dtype == torch.float16:
-            img = torch.nan_to_num(img, nan=0.0, posinf=65504, neginf=-65504)
+        if img.dtype == mindspore.float16:
+            img = mint.nan_to_num(img, nan=0.0, posinf=65504, neginf=-65504)
 
-        img = torch.cat((txt, img), 1)
+        img = mint.cat((txt, img), 1)
 
         for i, block in enumerate(self.single_blocks):
             if ("single_block", i) in blocks_replace:
@@ -215,18 +217,27 @@ class Flux(nn.Module):
         patch_size = self.patch_size
         x = comfy.ldm.common_dit.pad_to_patch_size(x, (patch_size, patch_size))
 
-        img = rearrange(x, "b c (h ph) (w pw) -> b (h w) (c ph pw)", ph=patch_size, pw=patch_size)
+        # img = rearrange(x, "b c (h ph) (w pw) -> b (h w) (c ph pw)", ph=patch_size, pw=patch_size)
+        _b, _c, _h, _w = x.shape
+        _ph, _pw, _h, _w = patch_size, patch_size, _h//patch_size, _w//patch_size
+        img = x.view(_b, _c, _h, _ph, _w, _pw).permute(0, 2, 4, 1, 3, 5).view(_b, _h*_w, _c*_ph*_pw)
+
         h_len = ((h + (patch_size // 2)) // patch_size)
         w_len = ((w + (patch_size // 2)) // patch_size)
 
         h_offset = ((h_offset + (patch_size // 2)) // patch_size)
         w_offset = ((w_offset + (patch_size // 2)) // patch_size)
 
-        img_ids = torch.zeros((h_len, w_len, 3), device=x.device, dtype=x.dtype)
+        img_ids = mint.zeros((h_len, w_len, 3), dtype=x.dtype)
         img_ids[:, :, 0] = img_ids[:, :, 1] + index
-        img_ids[:, :, 1] = img_ids[:, :, 1] + torch.linspace(h_offset, h_len - 1 + h_offset, steps=h_len, device=x.device, dtype=x.dtype).unsqueeze(1)
-        img_ids[:, :, 2] = img_ids[:, :, 2] + torch.linspace(w_offset, w_len - 1 + w_offset, steps=w_len, device=x.device, dtype=x.dtype).unsqueeze(0)
-        return img, repeat(img_ids, "h w c -> b (h w) c", b=bs)
+        img_ids[:, :, 1] = img_ids[:, :, 1] + mint.linspace(h_offset, h_len - 1 + h_offset, steps=h_len, dtype=x.dtype).unsqueeze(1)
+        img_ids[:, :, 2] = img_ids[:, :, 2] + mint.linspace(w_offset, w_len - 1 + w_offset, steps=w_len, dtype=x.dtype).unsqueeze(0)
+        
+        # return img, repeat(img_ids, "h w c -> b (h w) c", b=bs)
+        _h, _w, _c = img_ids.shape
+        _b = bs
+        _out_1 = img_ids.view(1, _h*_w, _c).expand((_b, _h*_w, _c))
+        return img, _out_1
 
     def forward(self, x, timestep, context, y=None, guidance=None, ref_latents=None, control=None, transformer_options={}, **kwargs):
         return comfy.patcher_extension.WrapperExecutor.new_class_executor(
@@ -271,10 +282,15 @@ class Flux(nn.Module):
                     w = max(w, ref.shape[-1] + w_offset)
 
                 kontext, kontext_ids = self.process_img(ref, index=index, h_offset=h_offset, w_offset=w_offset)
-                img = torch.cat([img, kontext], dim=1)
-                img_ids = torch.cat([img_ids, kontext_ids], dim=1)
+                img = mint.cat([img, kontext], dim=1)
+                img_ids = mint.cat([img_ids, kontext_ids], dim=1)
 
-        txt_ids = torch.zeros((bs, context.shape[1], 3), device=x.device, dtype=x.dtype)
+        txt_ids = mint.zeros((bs, context.shape[1], 3), dtype=x.dtype)
         out = self.forward_orig(img, img_ids, context, txt_ids, timestep, y, guidance, control, transformer_options, attn_mask=kwargs.get("attention_mask", None))
         out = out[:, :img_tokens]
-        return rearrange(out, "b (h w) (c ph pw) -> b c (h ph) (w pw)", h=h_len, w=w_len, ph=2, pw=2)[:,:,:h_orig,:w_orig]
+    
+        # return rearrange(out, "b (h w) (c ph pw) -> b c (h ph) (w pw)", h=h_len, w=w_len, ph=2, pw=2)[:,:,:h_orig,:w_orig]
+        _b, _, _c = out.shape
+        _h, _w, _ph, _pw, _c = h_len, w_len, 2, 2, _c//4
+        out = out.view(_b, _h, _w, _c, _ph, _pw).permute(0, 3, 1, 4, 2, 5).view(_b, _c, _h*_ph, _w*_pw)[:,:,:h_orig,:w_orig]
+        return out

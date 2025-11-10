@@ -1,9 +1,10 @@
 # pytorch_diffusion + derived encoder decoder
 import math
-import torch
-import torch.nn as nn
 import numpy as np
 import logging
+
+import mindspore
+from mindspore import mint
 
 from comfy import model_management
 import comfy.ops
@@ -25,25 +26,24 @@ def get_timestep_embedding(timesteps, embedding_dim):
 
     half_dim = embedding_dim // 2
     emb = math.log(10000) / (half_dim - 1)
-    emb = torch.exp(torch.arange(half_dim, dtype=torch.float32) * -emb)
-    emb = emb.to(device=timesteps.device)
+    emb = mint.exp(mint.arange(half_dim, dtype=mindspore.float32) * -emb)
     emb = timesteps.float()[:, None] * emb[None, :]
-    emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=1)
+    emb = mint.cat([mint.sin(emb), mint.cos(emb)], dim=1)
     if embedding_dim % 2 == 1:  # zero pad
-        emb = torch.nn.functional.pad(emb, (0,1,0,0))
+        emb = mint.functional.pad(emb, (0,1,0,0))
     return emb
 
 
 def nonlinearity(x):
     # swish
-    return torch.nn.functional.silu(x)
+    return mint.functional.silu(x)
 
 
 def Normalize(in_channels, num_groups=32):
     return ops.GroupNorm(num_groups=num_groups, num_channels=in_channels, eps=1e-6, affine=True)
 
 
-class VideoConv3d(nn.Module):
+class VideoConv3d(mint.nn.Cell):
     def __init__(self, n_channels, out_channels, kernel_size, stride=1, dilation=1, padding_mode='replicate', padding=1, **kwargs):
         super().__init__()
 
@@ -56,27 +56,28 @@ class VideoConv3d(nn.Module):
         self.padding = padding
         self.conv = ops.Conv3d(n_channels, out_channels, kernel_size, stride=stride, dilation=dilation, **kwargs)
 
-    def forward(self, x):
+    def construct(self, x):
         if self.padding != 0:
-            x = torch.nn.functional.pad(x, self.padding, mode=self.padding_mode)
+            x = mint.functional.pad(x, self.padding, mode=self.padding_mode)
         return self.conv(x)
 
 def interpolate_up(x, scale_factor):
     try:
-        return torch.nn.functional.interpolate(x, scale_factor=scale_factor, mode="nearest")
+        return mint.functional.interpolate(x, scale_factor=scale_factor, mode="nearest")
     except: #operation not implemented for bf16
         orig_shape = list(x.shape)
         out_shape = orig_shape[:2]
         for i in range(len(orig_shape) - 2):
             out_shape.append(round(orig_shape[i + 2] * scale_factor[i]))
-        out = torch.empty(out_shape, dtype=x.dtype, layout=x.layout, device=x.device)
+        # out = mint.empty(out_shape, dtype=x.dtype, layout=x.layout)
+        out = mint.empty(out_shape, dtype=x.dtype)
         split = 8
         l = out.shape[1] // split
         for i in range(0, out.shape[1], l):
-            out[:,i:i+l] = torch.nn.functional.interpolate(x[:,i:i+l].to(torch.float32), scale_factor=scale_factor, mode="nearest").to(x.dtype)
+            out[:,i:i+l] = mint.functional.interpolate(x[:,i:i+l].to(mindspore.float32), scale_factor=scale_factor, mode="nearest").to(x.dtype)
         return out
 
-class Upsample(nn.Module):
+class Upsample(mint.nn.Cell):
     def __init__(self, in_channels, with_conv, conv_op=ops.Conv2d, scale_factor=2.0):
         super().__init__()
         self.with_conv = with_conv
@@ -89,7 +90,7 @@ class Upsample(nn.Module):
                                         stride=1,
                                         padding=1)
 
-    def forward(self, x):
+    def construct(self, x):
         scale_factor = self.scale_factor
         if isinstance(scale_factor, (int, float)):
             scale_factor = (scale_factor,) * (x.ndim - 2)
@@ -105,7 +106,7 @@ class Upsample(nn.Module):
 
             a = interpolate_up(a.squeeze(2), scale_factor=scale_factor[1:]).unsqueeze(2)
             if t > 1:
-                x = torch.cat((a, b), dim=2)
+                x = mint.cat((a, b), dim=2)
             else:
                 x = a
         else:
@@ -115,35 +116,35 @@ class Upsample(nn.Module):
         return x
 
 
-class Downsample(nn.Module):
+class Downsample(mint.nn.Cell):
     def __init__(self, in_channels, with_conv, stride=2, conv_op=ops.Conv2d):
         super().__init__()
         self.with_conv = with_conv
         if self.with_conv:
-            # no asymmetric padding in torch conv, must do it ourselves
+            # no asymmetric padding in mindspore conv, must do it ourselves
             self.conv = conv_op(in_channels,
                                         in_channels,
                                         kernel_size=3,
                                         stride=stride,
                                         padding=0)
 
-    def forward(self, x):
+    def construct(self, x):
         if self.with_conv:
             if x.ndim == 4:
                 pad = (0, 1, 0, 1)
                 mode = "constant"
-                x = torch.nn.functional.pad(x, pad, mode=mode, value=0)
+                x = mint.functional.pad(x, pad, mode=mode, value=0)
             elif x.ndim == 5:
                 pad = (1, 1, 1, 1, 2, 0)
                 mode = "replicate"
-                x = torch.nn.functional.pad(x, pad, mode=mode)
+                x = mint.functional.pad(x, pad, mode=mode)
             x = self.conv(x)
         else:
-            x = torch.nn.functional.avg_pool2d(x, kernel_size=2, stride=2)
+            x = mint.functional.avg_pool2d(x, kernel_size=2, stride=2)
         return x
 
 
-class ResnetBlock(nn.Module):
+class ResnetBlock(mint.nn.Cell):
     def __init__(self, *, in_channels, out_channels=None, conv_shortcut=False,
                  dropout=0.0, temb_channels=512, conv_op=ops.Conv2d, norm_op=Normalize):
         super().__init__()
@@ -152,7 +153,7 @@ class ResnetBlock(nn.Module):
         self.out_channels = out_channels
         self.use_conv_shortcut = conv_shortcut
 
-        self.swish = torch.nn.SiLU(inplace=True)
+        self.swish = mint.nn.SiLU(inplace=True)
         self.norm1 = norm_op(in_channels)
         self.conv1 = conv_op(in_channels,
                                      out_channels,
@@ -163,7 +164,7 @@ class ResnetBlock(nn.Module):
             self.temb_proj = ops.Linear(temb_channels,
                                              out_channels)
         self.norm2 = norm_op(out_channels)
-        self.dropout = torch.nn.Dropout(dropout, inplace=True)
+        self.dropout = mint.nn.Dropout(dropout, inplace=True)
         self.conv2 = conv_op(out_channels,
                                      out_channels,
                                      kernel_size=3,
@@ -183,7 +184,7 @@ class ResnetBlock(nn.Module):
                                                     stride=1,
                                                     padding=0)
 
-    def forward(self, x, temb=None):
+    def construct(self, x, temb=None):
         h = x
         h = self.norm1(h)
         h = self.swish(h)
@@ -206,10 +207,10 @@ class ResnetBlock(nn.Module):
         return x+h
 
 def slice_attention(q, k, v):
-    r1 = torch.zeros_like(k, device=q.device)
+    r1 = mint.zeros_like(k)
     scale = (int(q.shape[-1])**(-0.5))
 
-    mem_free_total = model_management.get_free_memory(q.device)
+    mem_free_total = model_management.get_free_memory(None)
 
     tensor_size = q.shape[0] * q.shape[1] * k.shape[2] * q.element_size()
     modifier = 3 if q.element_size() == 2 else 2.5
@@ -224,12 +225,12 @@ def slice_attention(q, k, v):
             slice_size = q.shape[1] // steps if (q.shape[1] % steps) == 0 else q.shape[1]
             for i in range(0, q.shape[1], slice_size):
                 end = i + slice_size
-                s1 = torch.bmm(q[:, i:end], k) * scale
+                s1 = mint.bmm(q[:, i:end], k) * scale
 
-                s2 = torch.nn.functional.softmax(s1, dim=2).permute(0,2,1)
+                s2 = mint.functional.softmax(s1, dim=2).permute(0,2,1)
                 del s1
 
-                r1[:, :, i:end] = torch.bmm(v, s2)
+                r1[:, :, i:end] = mint.bmm(v, s2)
                 del s2
             break
         except model_management.OOM_EXCEPTION as e:
@@ -274,7 +275,7 @@ def xformers_attention(q, k, v):
         out = slice_attention(q.view(B, -1, C), k.view(B, -1, C).transpose(1, 2), v.view(B, -1, C).transpose(1, 2)).reshape(orig_shape)
     return out
 
-def pytorch_attention(q, k, v):
+def mindspore_attention(q, k, v):
     # compute attention
     orig_shape = q.shape
     B = orig_shape[0]
@@ -297,14 +298,14 @@ def vae_attention():
     if model_management.xformers_enabled_vae():
         logging.info("Using xformers attention in VAE")
         return xformers_attention
-    elif model_management.pytorch_attention_enabled_vae():
-        logging.info("Using pytorch attention in VAE")
-        return pytorch_attention
+    elif model_management.mindspore_attention_enabled_vae():
+        logging.info("Using mindspore attention in VAE")
+        return mindspore_attention
     else:
         logging.info("Using split attention in VAE")
         return normal_attention
 
-class AttnBlock(nn.Module):
+class AttnBlock(mint.nn.Cell):
     def __init__(self, in_channels, conv_op=ops.Conv2d, norm_op=Normalize):
         super().__init__()
         self.in_channels = in_channels
@@ -333,7 +334,7 @@ class AttnBlock(nn.Module):
 
         self.optimized_attention = vae_attention()
 
-    def forward(self, x):
+    def construct(self, x):
         h_ = x
         h_ = self.norm(h_)
         q = self.q(h_)
@@ -351,7 +352,7 @@ def make_attn(in_channels, attn_type="vanilla", attn_kwargs=None, conv_op=ops.Co
     return AttnBlock(in_channels, conv_op=conv_op)
 
 
-class Model(nn.Module):
+class Model(mint.nn.Cell):
     def __init__(self, *, ch, out_ch, ch_mult=(1,2,4,8), num_res_blocks,
                  attn_resolutions, dropout=0.0, resamp_with_conv=True, in_channels,
                  resolution, use_timestep=True, use_linear_attn=False, attn_type="vanilla"):
@@ -367,8 +368,8 @@ class Model(nn.Module):
         self.use_timestep = use_timestep
         if self.use_timestep:
             # timestep embedding
-            self.temb = nn.Module()
-            self.temb.dense = nn.ModuleList([
+            self.temb = mint.nn.Cell()
+            self.temb.dense = mindspore.nn.CellList([
                 ops.Linear(self.ch,
                                 self.temb_ch),
                 ops.Linear(self.temb_ch,
@@ -384,10 +385,10 @@ class Model(nn.Module):
 
         curr_res = resolution
         in_ch_mult = (1,)+tuple(ch_mult)
-        self.down = nn.ModuleList()
+        self.down = mindspore.nn.CellList()
         for i_level in range(self.num_resolutions):
-            block = nn.ModuleList()
-            attn = nn.ModuleList()
+            block = mindspore.nn.CellList()
+            attn = mindspore.nn.CellList()
             block_in = ch*in_ch_mult[i_level]
             block_out = ch*ch_mult[i_level]
             for i_block in range(self.num_res_blocks):
@@ -398,7 +399,7 @@ class Model(nn.Module):
                 block_in = block_out
                 if curr_res in attn_resolutions:
                     attn.append(make_attn(block_in, attn_type=attn_type))
-            down = nn.Module()
+            down = mint.nn.Cell()
             down.block = block
             down.attn = attn
             if i_level != self.num_resolutions-1:
@@ -407,7 +408,7 @@ class Model(nn.Module):
             self.down.append(down)
 
         # middle
-        self.mid = nn.Module()
+        self.mid = mint.nn.Cell()
         self.mid.block_1 = ResnetBlock(in_channels=block_in,
                                        out_channels=block_in,
                                        temb_channels=self.temb_ch,
@@ -419,10 +420,10 @@ class Model(nn.Module):
                                        dropout=dropout)
 
         # upsampling
-        self.up = nn.ModuleList()
+        self.up = mindspore.nn.CellList()
         for i_level in reversed(range(self.num_resolutions)):
-            block = nn.ModuleList()
-            attn = nn.ModuleList()
+            block = mindspore.nn.CellList()
+            attn = mindspore.nn.CellList()
             block_out = ch*ch_mult[i_level]
             skip_in = ch*ch_mult[i_level]
             for i_block in range(self.num_res_blocks+1):
@@ -435,7 +436,7 @@ class Model(nn.Module):
                 block_in = block_out
                 if curr_res in attn_resolutions:
                     attn.append(make_attn(block_in, attn_type=attn_type))
-            up = nn.Module()
+            up = mint.nn.Cell()
             up.block = block
             up.attn = attn
             if i_level != 0:
@@ -451,11 +452,11 @@ class Model(nn.Module):
                                         stride=1,
                                         padding=1)
 
-    def forward(self, x, t=None, context=None):
+    def construct(self, x, t=None, context=None):
         #assert x.shape[2] == x.shape[3] == self.resolution
         if context is not None:
             # assume aligned context, cat along channel axis
-            x = torch.cat((x, context), dim=1)
+            x = mint.cat((x, context), dim=1)
         if self.use_timestep:
             # timestep embedding
             assert t is not None
@@ -487,7 +488,7 @@ class Model(nn.Module):
         for i_level in reversed(range(self.num_resolutions)):
             for i_block in range(self.num_res_blocks+1):
                 h = self.up[i_level].block[i_block](
-                    torch.cat([h, hs.pop()], dim=1), temb)
+                    mint.cat([h, hs.pop()], dim=1), temb)
                 if len(self.up[i_level].attn) > 0:
                     h = self.up[i_level].attn[i_block](h)
             if i_level != 0:
@@ -503,7 +504,7 @@ class Model(nn.Module):
         return self.conv_out.weight
 
 
-class Encoder(nn.Module):
+class Encoder(mint.nn.Cell):
     def __init__(self, *, ch, out_ch, ch_mult=(1,2,4,8), num_res_blocks,
                  attn_resolutions, dropout=0.0, resamp_with_conv=True, in_channels,
                  resolution, z_channels, double_z=True, use_linear_attn=False, attn_type="vanilla",
@@ -535,10 +536,10 @@ class Encoder(nn.Module):
         curr_res = resolution
         in_ch_mult = (1,)+tuple(ch_mult)
         self.in_ch_mult = in_ch_mult
-        self.down = nn.ModuleList()
+        self.down = mindspore.nn.CellList()
         for i_level in range(self.num_resolutions):
-            block = nn.ModuleList()
-            attn = nn.ModuleList()
+            block = mindspore.nn.CellList()
+            attn = mindspore.nn.CellList()
             block_in = ch*in_ch_mult[i_level]
             block_out = ch*ch_mult[i_level]
             for i_block in range(self.num_res_blocks):
@@ -550,7 +551,7 @@ class Encoder(nn.Module):
                 block_in = block_out
                 if curr_res in attn_resolutions:
                     attn.append(make_attn(block_in, attn_type=attn_type, conv_op=conv_op))
-            down = nn.Module()
+            down = mint.nn.Cell()
             down.block = block
             down.attn = attn
             if i_level != self.num_resolutions-1:
@@ -563,7 +564,7 @@ class Encoder(nn.Module):
             self.down.append(down)
 
         # middle
-        self.mid = nn.Module()
+        self.mid = mint.nn.Cell()
         self.mid.block_1 = ResnetBlock(in_channels=block_in,
                                        out_channels=block_in,
                                        temb_channels=self.temb_ch,
@@ -584,7 +585,7 @@ class Encoder(nn.Module):
                                         stride=1,
                                         padding=1)
 
-    def forward(self, x):
+    def construct(self, x):
         # timestep embedding
         temb = None
         # downsampling
@@ -609,7 +610,7 @@ class Encoder(nn.Module):
         return h
 
 
-class Decoder(nn.Module):
+class Decoder(mint.nn.Cell):
     def __init__(self, *, ch, out_ch, ch_mult=(1,2,4,8), num_res_blocks,
                  attn_resolutions, dropout=0.0, resamp_with_conv=True, in_channels,
                  resolution, z_channels, give_pre_end=False, tanh_out=False, use_linear_attn=False,
@@ -652,7 +653,7 @@ class Decoder(nn.Module):
                                        padding=1)
 
         # middle
-        self.mid = nn.Module()
+        self.mid = mint.nn.Cell()
         self.mid.block_1 = resnet_op(in_channels=block_in,
                                        out_channels=block_in,
                                        temb_channels=self.temb_ch,
@@ -666,10 +667,10 @@ class Decoder(nn.Module):
                                        conv_op=conv_op)
 
         # upsampling
-        self.up = nn.ModuleList()
+        self.up = mindspore.nn.CellList()
         for i_level in reversed(range(self.num_resolutions)):
-            block = nn.ModuleList()
-            attn = nn.ModuleList()
+            block = mindspore.nn.CellList()
+            attn = mindspore.nn.CellList()
             block_out = ch*ch_mult[i_level]
             for i_block in range(self.num_res_blocks+1):
                 block.append(resnet_op(in_channels=block_in,
@@ -680,7 +681,7 @@ class Decoder(nn.Module):
                 block_in = block_out
                 if curr_res in attn_resolutions:
                     attn.append(attn_op(block_in, conv_op=conv_op))
-            up = nn.Module()
+            up = mint.nn.Cell()
             up.block = block
             up.attn = attn
             if i_level != 0:
@@ -701,7 +702,7 @@ class Decoder(nn.Module):
                                         stride=1,
                                         padding=1)
 
-    def forward(self, z, **kwargs):
+    def construct(self, z, **kwargs):
         # timestep embedding
         temb = None
 
@@ -730,5 +731,5 @@ class Decoder(nn.Module):
         h = nonlinearity(h)
         h = self.conv_out(h, **kwargs)
         if self.tanh_out:
-            h = torch.tanh(h)
+            h = mint.tanh(h)
         return h
