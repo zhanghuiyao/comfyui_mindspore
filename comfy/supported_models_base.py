@@ -16,10 +16,12 @@
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
 
-import torch
 from . import model_base
 from . import utils
 from . import latent_formats
+
+import mindspore
+
 
 class ClipTarget:
     def __init__(self, tokenizer, clip):
@@ -43,7 +45,7 @@ class BASE:
     latent_format = latent_formats.LatentFormat
     vae_key_prefix = ["first_stage_model."]
     text_encoder_key_prefix = ["cond_stage_model."]
-    supported_inference_dtypes = [torch.float16, torch.bfloat16, torch.float32]
+    supported_inference_dtypes = [mindspore.float16, mindspore.bfloat16, mindspore.float32]
 
     memory_usage_factor = 2.0
 
@@ -80,9 +82,9 @@ class BASE:
 
     def get_model(self, state_dict, prefix="", device=None):
         if self.noise_aug_config is not None:
-            out = model_base.SD21UNCLIP(self, self.noise_aug_config, model_type=self.model_type(state_dict, prefix), device=device)
+            out = model_base.SD21UNCLIP(self, self.noise_aug_config, model_type=self.model_type(state_dict, prefix), device=None)
         else:
-            out = model_base.BaseModel(self, model_type=self.model_type(state_dict, prefix), device=device)
+            out = model_base.BaseModel(self, model_type=self.model_type(state_dict, prefix), device=None)
         if self.inpaint_model():
             out.set_inpaint()
         return out

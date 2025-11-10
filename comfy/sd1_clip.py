@@ -2,7 +2,6 @@ import os
 
 from transformers import CLIPTokenizer
 import comfy.ops
-import torch
 import traceback
 import zipfile
 from . import model_management
@@ -11,6 +10,10 @@ import json
 import logging
 import numbers
 import re
+
+import mindspore
+from mindspore import mint
+
 
 def gen_empty_tokens(special_tokens, length):
     start_token = special_tokens.get("start", None)
@@ -46,7 +49,7 @@ class ClipTokenWeightEncoder:
         out, pooled = o[:2]
 
         if pooled is not None:
-            first_pooled = pooled[0:1].to(model_management.intermediate_device())
+            first_pooled = pooled[0:1]
         else:
             first_pooled = pooled
 
@@ -63,29 +66,29 @@ class ClipTokenWeightEncoder:
             output.append(z)
 
         if (len(output) == 0):
-            r = (out[-1:].to(model_management.intermediate_device()), first_pooled)
+            r = (out[-1:], first_pooled)
         else:
-            r = (torch.cat(output, dim=-2).to(model_management.intermediate_device()), first_pooled)
+            r = (mint.cat(output, dim=-2), first_pooled)
 
         if len(o) > 2:
             extra = {}
             for k in o[2]:
                 v = o[2][k]
                 if k == "attention_mask":
-                    v = v[:sections].flatten().unsqueeze(dim=0).to(model_management.intermediate_device())
+                    v = v[:sections].flatten().unsqueeze(dim=0)
                 extra[k] = v
 
             r = r + (extra,)
         return r
 
-class SDClipModel(torch.nn.Module, ClipTokenWeightEncoder):
+class SDClipModel(mindspore.nn.Cell, ClipTokenWeightEncoder):
     LAYERS = [
         "last",
         "pooled",
         "hidden",
         "all"
     ]
-    def __init__(self, device="cpu", max_length=77,
+    def __init__(self, max_length=77,
                  freeze=True, layer="last", layer_idx=None, textmodel_json_config=None, dtype=None, model_class=comfy.clip_model.CLIPTextModel,
                  special_tokens={"start": 49406, "end": 49407, "pad": 49407}, layer_norm_hidden_state=True, enable_attention_masks=False, zero_out_masked=False,
                  return_projected_pooled=True, return_attention_masks=False, model_options={}):  # clip-vit-base-patch32
@@ -113,14 +116,16 @@ class SDClipModel(torch.nn.Module, ClipTokenWeightEncoder):
         if operations is None:
             scaled_fp8 = model_options.get("scaled_fp8", None)
             if scaled_fp8 is not None:
-                operations = comfy.ops.scaled_fp8_ops(fp8_matrix_mult=False, override_dtype=scaled_fp8)
+                # operations = comfy.ops.scaled_fp8_ops(fp8_matrix_mult=False, override_dtype=scaled_fp8)
+                raise NotImplementedError
             else:
                 operations = comfy.ops.manual_cast
 
         self.operations = operations
-        self.transformer = model_class(config, dtype, device, self.operations)
+        self.transformer = model_class(config, dtype, self.operations)
         if scaled_fp8 is not None:
-            self.transformer.scaled_fp8 = torch.nn.Parameter(torch.tensor([], dtype=scaled_fp8))
+            # self.transformer.scaled_fp8 = mindspore.Parameter(mindspore.tensor([], dtype=scaled_fp8))
+            raise NotImplementedError
 
         self.num_layers = self.transformer.num_layers
 
@@ -131,7 +136,7 @@ class SDClipModel(torch.nn.Module, ClipTokenWeightEncoder):
         self.layer_idx = None
         self.special_tokens = special_tokens
 
-        self.logit_scale = torch.nn.Parameter(torch.tensor(4.6055))
+        self.logit_scale = mindspore.Parameter(mindspore.tensor(4.6055))
         self.enable_attention_masks = enable_attention_masks
         self.zero_out_masked = zero_out_masked
 
@@ -167,7 +172,7 @@ class SDClipModel(torch.nn.Module, ClipTokenWeightEncoder):
         self.layer_idx = self.options_default[1]
         self.return_projected_pooled = self.options_default[2]
 
-    def process_tokens(self, tokens, device):
+    def process_tokens(self, tokens):
         end_token = self.special_tokens.get("end", None)
         if end_token is None:
             cmp_token = self.special_tokens.get("pad", -1)
@@ -200,14 +205,14 @@ class SDClipModel(torch.nn.Module, ClipTokenWeightEncoder):
                     other_embeds.append((index, y))
                 index += 1
 
-            tokens_embed = torch.tensor([tokens_temp], device=device, dtype=torch.long)
-            tokens_embed = self.transformer.get_input_embeddings()(tokens_embed, out_dtype=torch.float32)
+            tokens_embed = mindspore.tensor([tokens_temp], dtype=mindspore.long)
+            tokens_embed = self.transformer.get_input_embeddings()(tokens_embed, out_dtype=mindspore.float32)
             index = 0
             pad_extra = 0
             embeds_info = []
             for o in other_embeds:
                 emb = o[1]
-                if torch.is_tensor(emb):
+                if mindspore.is_tensor(emb):
                     emb = {"type": "embedding", "data": emb}
 
                 extra = None
@@ -216,7 +221,7 @@ class SDClipModel(torch.nn.Module, ClipTokenWeightEncoder):
                     emb = emb.get("data", None)
                 else:
                     if hasattr(self.transformer, "preprocess_embed"):
-                        emb, extra = self.transformer.preprocess_embed(emb, device=device)
+                        emb, extra = self.transformer.preprocess_embed(emb)
                     else:
                         emb = None
 
@@ -225,10 +230,10 @@ class SDClipModel(torch.nn.Module, ClipTokenWeightEncoder):
                     continue
 
                 ind = index + o[0]
-                emb = emb.view(1, -1, emb.shape[-1]).to(device=device, dtype=torch.float32)
+                emb = emb.view(1, -1, emb.shape[-1]).to(dtype=mindspore.float32)
                 emb_shape = emb.shape[1]
                 if emb.shape[-1] == tokens_embed.shape[-1]:
-                    tokens_embed = torch.cat([tokens_embed[:, :ind], emb, tokens_embed[:, ind:]], dim=1)
+                    tokens_embed = mint.cat([tokens_embed[:, :ind], emb, tokens_embed[:, ind:]], dim=1)
                     attention_mask = attention_mask[:ind] + [1] * emb_shape + attention_mask[ind:]
                     index += emb_shape - 1
                     embeds_info.append({"type": emb_type, "index": ind, "size": emb_shape, "extra": extra})
@@ -238,19 +243,18 @@ class SDClipModel(torch.nn.Module, ClipTokenWeightEncoder):
                     logging.warning("WARNING: shape mismatch when trying to apply embedding, embedding will be ignored {} != {}".format(emb.shape[-1], tokens_embed.shape[-1]))
 
             if pad_extra > 0:
-                padd_embed = self.transformer.get_input_embeddings()(torch.tensor([[self.special_tokens["pad"]] * pad_extra], device=device, dtype=torch.long), out_dtype=torch.float32)
-                tokens_embed = torch.cat([tokens_embed, padd_embed], dim=1)
+                padd_embed = self.transformer.get_input_embeddings()(mindspore.tensor([[self.special_tokens["pad"]] * pad_extra], dtype=mindspore.long), out_dtype=mindspore.float32)
+                tokens_embed = mint.cat([tokens_embed, padd_embed], dim=1)
                 attention_mask = attention_mask + [0] * pad_extra
 
             embeds_out.append(tokens_embed)
             attention_masks.append(attention_mask)
             num_tokens.append(sum(attention_mask))
 
-        return torch.cat(embeds_out), torch.tensor(attention_masks, device=device, dtype=torch.long), num_tokens, embeds_info
+        return mint.cat(embeds_out), mindspore.tensor(attention_masks, dtype=mindspore.long), num_tokens, embeds_info
 
-    def forward(self, tokens):
-        device = self.transformer.get_input_embeddings().weight.device
-        embeds, attention_mask, num_tokens, embeds_info = self.process_tokens(tokens, device)
+    def construct(self, tokens):
+        embeds, attention_mask, num_tokens, embeds_info = self.process_tokens(tokens)
 
         attention_mask_model = None
         if self.enable_attention_masks:
@@ -261,7 +265,7 @@ class SDClipModel(torch.nn.Module, ClipTokenWeightEncoder):
         else:
             intermediate_output = self.layer_idx
 
-        outputs = self.transformer(None, attention_mask_model, embeds=embeds, num_tokens=num_tokens, intermediate_output=intermediate_output, final_layer_norm_intermediate=self.layer_norm_hidden_state, dtype=torch.float32, embeds_info=embeds_info)
+        outputs = self.transformer(None, attention_mask_model, embeds=embeds, num_tokens=num_tokens, intermediate_output=intermediate_output, final_layer_norm_intermediate=self.layer_norm_hidden_state, dtype=mindspore.float32, embeds_info=embeds_info)
 
         if self.layer == "last":
             z = outputs[0].float()
@@ -352,6 +356,7 @@ def unescape_important(text):
     return text
 
 def safe_load_embed_zip(embed_path):
+    import torch
     with zipfile.ZipFile(embed_path) as myzip:
         names = list(filter(lambda a: "data/" in a, myzip.namelist()))
         names.reverse()
@@ -367,6 +372,7 @@ def safe_load_embed_zip(embed_path):
                 num_embeds = number // length_embed
                 embed = torch.frombuffer(data, dtype=torch.float)
                 out = embed.reshape((num_embeds, length_embed)).clone()
+                out = mindspore.from_numpy(out.cpu().detach().numpy())
                 del embed
                 return out
 
@@ -386,7 +392,7 @@ def bundled_embed(embed, prefix, suffix): #bundled embedding in lora format
     if len(out_list) == 0:
         return None
 
-    return torch.cat(out_list, dim=0)
+    return mint.cat(out_list, dim=0)
 
 def load_embed(embedding_name, embedding_directory, embedding_size, embed_key=None):
     if isinstance(embedding_directory, str):
@@ -424,10 +430,11 @@ def load_embed(embedding_name, embedding_directory, embedding_size, embed_key=No
 
     try:
         if embed_path.lower().endswith(".safetensors"):
-            import safetensors.torch
-            embed = safetensors.torch.load_file(embed_path, device="cpu")
+            from mindone.safetensors.mindspore import load_file
+            embed = load_file(embed_path)
         else:
             try:
+                import torch
                 embed = torch.load(embed_path, weights_only=True, map_location="cpu")
             except:
                 embed_out = safe_load_embed_zip(embed_path)
@@ -447,7 +454,7 @@ def load_embed(embedding_name, embedding_directory, embedding_size, embed_key=No
                     if t.shape[-1] != embedding_size:
                         continue
                     out_list.append(t.reshape(-1, t.shape[-1]))
-            embed_out = torch.cat(out_list, dim=0)
+            embed_out = mint.cat(out_list, dim=0)
         elif embed_key is not None and embed_key in embed:
             embed_out = embed[embed_key]
         else:
@@ -656,11 +663,11 @@ class SD1Tokenizer:
         return getattr(self, self.clip).state_dict()
 
 class SD1CheckpointClipModel(SDClipModel):
-    def __init__(self, device="cpu", dtype=None, model_options={}):
-        super().__init__(device=device, return_projected_pooled=False, dtype=dtype, model_options=model_options)
+    def __init__(self, device=None, dtype=None, model_options={}):
+        super().__init__(device=None, return_projected_pooled=False, dtype=dtype, model_options=model_options)
 
-class SD1ClipModel(torch.nn.Module):
-    def __init__(self, device="cpu", dtype=None, model_options={}, clip_name="l", clip_model=SD1CheckpointClipModel, name=None, **kwargs):
+class SD1ClipModel(mindspore.nn.Cell):
+    def __init__(self, device=None, dtype=None, model_options={}, clip_name="l", clip_model=SD1CheckpointClipModel, name=None, **kwargs):
         super().__init__()
 
         if name is not None:
@@ -672,7 +679,7 @@ class SD1ClipModel(torch.nn.Module):
 
         clip_model = model_options.get("{}_class".format(self.clip), clip_model)
         model_options = {**model_options, "model_name": self.clip}
-        setattr(self, self.clip, clip_model(device=device, dtype=dtype, model_options=model_options, **kwargs))
+        setattr(self, self.clip, clip_model(device=None, dtype=dtype, model_options=model_options, **kwargs))
 
         self.dtypes = set()
         if dtype is not None:

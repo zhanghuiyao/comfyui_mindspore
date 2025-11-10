@@ -10,14 +10,17 @@
 
 import math
 import logging
-import torch
-import torch.nn as nn
 import numpy as np
 from einops import repeat, rearrange
 
+import mindspore
+from mindspore import mint
+from mindspore.mint import nn
+
 from comfy.ldm.util import instantiate_from_config
 
-class AlphaBlender(nn.Module):
+
+class AlphaBlender(nn.Cell):
     strategies = ["learned", "fixed", "learned_with_images"]
 
     def __init__(
@@ -35,35 +38,35 @@ class AlphaBlender(nn.Module):
         ), f"merge_strategy needs to be in {self.strategies}"
 
         if self.merge_strategy == "fixed":
-            self.register_buffer("mix_factor", torch.Tensor([alpha]))
+            self.register_buffer("mix_factor", mindspore.Tensor([alpha]))
         elif (
             self.merge_strategy == "learned"
             or self.merge_strategy == "learned_with_images"
         ):
             self.register_parameter(
-                "mix_factor", torch.nn.Parameter(torch.Tensor([alpha]))
+                "mix_factor", mindspore.Parameter(mindspore.Tensor([alpha]))
             )
         else:
             raise ValueError(f"unknown merge strategy {self.merge_strategy}")
 
-    def get_alpha(self, image_only_indicator: torch.Tensor, device) -> torch.Tensor:
+    def get_alpha(self, image_only_indicator: mindspore.Tensor, device) -> mindspore.Tensor:
         # skip_time_mix = rearrange(repeat(skip_time_mix, 'b -> (b t) () () ()', t=t), '(b t) 1 ... -> b 1 t ...', t=t)
         if self.merge_strategy == "fixed":
             # make shape compatible
             # alpha = repeat(self.mix_factor, '1 -> b () t  () ()', t=t, b=bs)
             alpha = self.mix_factor.to(device)
         elif self.merge_strategy == "learned":
-            alpha = torch.sigmoid(self.mix_factor.to(device))
+            alpha = mint.sigmoid(self.mix_factor.to(device))
             # make shape compatible
             # alpha = repeat(alpha, '1 -> s () ()', s = t * bs)
         elif self.merge_strategy == "learned_with_images":
             if image_only_indicator is None:
-                alpha = rearrange(torch.sigmoid(self.mix_factor.to(device)), "... -> ... 1")
+                alpha = rearrange(mint.sigmoid(self.mix_factor.to(device)), "... -> ... 1")
             else:
-                alpha = torch.where(
+                alpha = mint.where(
                     image_only_indicator.bool(),
-                    torch.ones(1, 1, device=image_only_indicator.device),
-                    rearrange(torch.sigmoid(self.mix_factor.to(image_only_indicator.device)), "... -> ... 1"),
+                    mint.ones(1, 1, device=image_only_indicator.device),
+                    rearrange(mint.sigmoid(self.mix_factor.to(image_only_indicator.device)), "... -> ... 1"),
                 )
             alpha = rearrange(alpha, self.rearrange_pattern)
             # make shape compatible
@@ -72,12 +75,12 @@ class AlphaBlender(nn.Module):
             raise NotImplementedError()
         return alpha
 
-    def forward(
+    def construct(
         self,
         x_spatial,
         x_temporal,
         image_only_indicator=None,
-    ) -> torch.Tensor:
+    ) -> mindspore.Tensor:
         alpha = self.get_alpha(image_only_indicator, x_spatial.device)
         x = (
             alpha.to(x_spatial.dtype) * x_spatial
@@ -89,18 +92,18 @@ class AlphaBlender(nn.Module):
 def make_beta_schedule(schedule, n_timestep, linear_start=1e-4, linear_end=2e-2, cosine_s=8e-3):
     if schedule == "linear":
         betas = (
-                torch.linspace(linear_start ** 0.5, linear_end ** 0.5, n_timestep, dtype=torch.float64) ** 2
+                mint.linspace(linear_start ** 0.5, linear_end ** 0.5, n_timestep, dtype=mindspore.float64) ** 2
         )
 
     elif schedule == "cosine":
         timesteps = (
-                torch.arange(n_timestep + 1, dtype=torch.float64) / n_timestep + cosine_s
+                mint.arange(n_timestep + 1, dtype=mindspore.float64) / n_timestep + cosine_s
         )
         alphas = timesteps / (1 + cosine_s) * np.pi / 2
-        alphas = torch.cos(alphas).pow(2)
+        alphas = mint.cos(alphas).pow(2)
         alphas = alphas / alphas[0]
         betas = 1 - alphas[1:] / alphas[:-1]
-        betas = torch.clamp(betas, min=0, max=0.999)
+        betas = mint.clamp(betas, min=0, max=0.999)
 
     elif schedule == "squaredcos_cap_v2":  # used for karlo prior
         # return early
@@ -110,9 +113,9 @@ def make_beta_schedule(schedule, n_timestep, linear_start=1e-4, linear_end=2e-2,
         )
 
     elif schedule == "sqrt_linear":
-        betas = torch.linspace(linear_start, linear_end, n_timestep, dtype=torch.float64)
+        betas = mint.linspace(linear_start, linear_end, n_timestep, dtype=mindspore.float64)
     elif schedule == "sqrt":
-        betas = torch.linspace(linear_start, linear_end, n_timestep, dtype=torch.float64) ** 0.5
+        betas = mint.linspace(linear_start, linear_end, n_timestep, dtype=mindspore.float64) ** 0.5
     else:
         raise ValueError(f"schedule '{schedule}' unknown.")
     return betas
@@ -174,56 +177,56 @@ def extract_into_tensor(a, t, x_shape):
     return out.reshape(b, *((1,) * (len(x_shape) - 1)))
 
 
-def checkpoint(func, inputs, params, flag):
-    """
-    Evaluate a function without caching intermediate activations, allowing for
-    reduced memory at the expense of extra compute in the backward pass.
-    :param func: the function to evaluate.
-    :param inputs: the argument sequence to pass to `func`.
-    :param params: a sequence of parameters `func` depends on but does not
-                   explicitly take as arguments.
-    :param flag: if False, disable gradient checkpointing.
-    """
-    if flag:
-        args = tuple(inputs) + tuple(params)
-        return CheckpointFunction.apply(func, len(inputs), *args)
-    else:
-        return func(*inputs)
+# def checkpoint(func, inputs, params, flag):
+#     """
+#     Evaluate a function without caching intermediate activations, allowing for
+#     reduced memory at the expense of extra compute in the backward pass.
+#     :param func: the function to evaluate.
+#     :param inputs: the argument sequence to pass to `func`.
+#     :param params: a sequence of parameters `func` depends on but does not
+#                    explicitly take as arguments.
+#     :param flag: if False, disable gradient checkpointing.
+#     """
+#     if flag:
+#         args = tuple(inputs) + tuple(params)
+#         return CheckpointFunction.apply(func, len(inputs), *args)
+#     else:
+#         return func(*inputs)
 
 
-class CheckpointFunction(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, run_function, length, *args):
-        ctx.run_function = run_function
-        ctx.input_tensors = list(args[:length])
-        ctx.input_params = list(args[length:])
-        ctx.gpu_autocast_kwargs = {"enabled": torch.is_autocast_enabled(),
-                                   "dtype": torch.get_autocast_gpu_dtype(),
-                                   "cache_enabled": torch.is_autocast_cache_enabled()}
-        with torch.no_grad():
-            output_tensors = ctx.run_function(*ctx.input_tensors)
-        return output_tensors
+# class CheckpointFunction(torch.autograd.Function):
+#     @staticmethod
+#     def construct(ctx, run_function, length, *args):
+#         ctx.run_function = run_function
+#         ctx.input_tensors = list(args[:length])
+#         ctx.input_params = list(args[length:])
+#         ctx.gpu_autocast_kwargs = {"enabled": torch.is_autocast_enabled(),
+#                                    "dtype": torch.get_autocast_gpu_dtype(),
+#                                    "cache_enabled": torch.is_autocast_cache_enabled()}
+#         with torch.no_grad():
+#             output_tensors = ctx.run_function(*ctx.input_tensors)
+#         return output_tensors
 
-    @staticmethod
-    def backward(ctx, *output_grads):
-        ctx.input_tensors = [x.detach().requires_grad_(True) for x in ctx.input_tensors]
-        with torch.enable_grad(), \
-                torch.cuda.amp.autocast(**ctx.gpu_autocast_kwargs):
-            # Fixes a bug where the first op in run_function modifies the
-            # Tensor storage in place, which is not allowed for detach()'d
-            # Tensors.
-            shallow_copies = [x.view_as(x) for x in ctx.input_tensors]
-            output_tensors = ctx.run_function(*shallow_copies)
-        input_grads = torch.autograd.grad(
-            output_tensors,
-            ctx.input_tensors + ctx.input_params,
-            output_grads,
-            allow_unused=True,
-        )
-        del ctx.input_tensors
-        del ctx.input_params
-        del output_tensors
-        return (None, None) + input_grads
+#     @staticmethod
+#     def backward(ctx, *output_grads):
+#         ctx.input_tensors = [x.detach().requires_grad_(True) for x in ctx.input_tensors]
+#         with torch.enable_grad(), \
+#                 torch.cuda.amp.autocast(**ctx.gpu_autocast_kwargs):
+#             # Fixes a bug where the first op in run_function modifies the
+#             # Tensor storage in place, which is not allowed for detach()'d
+#             # Tensors.
+#             shallow_copies = [x.view_as(x) for x in ctx.input_tensors]
+#             output_tensors = ctx.run_function(*shallow_copies)
+#         input_grads = torch.autograd.grad(
+#             output_tensors,
+#             ctx.input_tensors + ctx.input_params,
+#             output_grads,
+#             allow_unused=True,
+#         )
+#         del ctx.input_tensors
+#         del ctx.input_params
+#         del output_tensors
+#         return (None, None) + input_grads
 
 
 def timestep_embedding(timesteps, dim, max_period=10000, repeat_only=False):
@@ -237,13 +240,13 @@ def timestep_embedding(timesteps, dim, max_period=10000, repeat_only=False):
     """
     if not repeat_only:
         half = dim // 2
-        freqs = torch.exp(
-            -math.log(max_period) * torch.arange(start=0, end=half, dtype=torch.float32, device=timesteps.device) / half
+        freqs = mint.exp(
+            -math.log(max_period) * mint.arange(start=0, end=half, dtype=mindspore.float32, device=timesteps.device) / half
         )
         args = timesteps[:, None].float() * freqs[None]
-        embedding = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
+        embedding = mint.cat([mint.cos(args), mint.sin(args)], dim=-1)
         if dim % 2:
-            embedding = torch.cat([embedding, torch.zeros_like(embedding[:, :1])], dim=-1)
+            embedding = mint.cat([embedding, mint.zeros_like(embedding[:, :1])], dim=-1)
     else:
         embedding = repeat(timesteps, 'b -> b d', d=dim)
     return embedding
@@ -287,20 +290,20 @@ def avg_pool_nd(dims, *args, **kwargs):
     raise ValueError(f"unsupported dimensions: {dims}")
 
 
-class HybridConditioner(nn.Module):
+class HybridConditioner(nn.Cell):
 
     def __init__(self, c_concat_config, c_crossattn_config):
         super().__init__()
         self.concat_conditioner = instantiate_from_config(c_concat_config)
         self.crossattn_conditioner = instantiate_from_config(c_crossattn_config)
 
-    def forward(self, c_concat, c_crossattn):
+    def construct(self, c_concat, c_crossattn):
         c_concat = self.concat_conditioner(c_concat)
         c_crossattn = self.crossattn_conditioner(c_crossattn)
         return {'c_concat': [c_concat], 'c_crossattn': [c_crossattn]}
 
 
 def noise_like(shape, device, repeat=False):
-    repeat_noise = lambda: torch.randn((1, *shape[1:]), device=device).repeat(shape[0], *((1,) * (len(shape) - 1)))
-    noise = lambda: torch.randn(shape, device=device)
+    repeat_noise = lambda: mint.randn((1, *shape[1:]), device=device).repeat(shape[0], *((1,) * (len(shape) - 1)))
+    noise = lambda: mint.randn(shape, device=device)
     return repeat_noise() if repeat else noise()

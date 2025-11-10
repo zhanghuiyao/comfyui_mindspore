@@ -26,7 +26,8 @@ import math
 import uuid
 from typing import Callable, Optional
 
-import torch
+import mindspore
+from mindspore import mint
 
 import comfy.float
 import comfy.hooks
@@ -107,46 +108,33 @@ def wipe_lowvram_weight(m):
         m.bias_function = []
 
 def move_weight_functions(m, device):
-    if device is None:
-        return 0
+    return 0
 
-    memory = 0
-    if hasattr(m, "weight_function"):
-        for f in m.weight_function:
-            if hasattr(f, "move_to"):
-                memory += f.move_to(device=device)
+# class LowVramPatch:
+#     def __init__(self, key, patches, convert_func=None, set_func=None):
+#         self.key = key
+#         self.patches = patches
+#         self.convert_func = convert_func
+#         self.set_func = set_func
 
-    if hasattr(m, "bias_function"):
-        for f in m.bias_function:
-            if hasattr(f, "move_to"):
-                memory += f.move_to(device=device)
-    return memory
+#     def __call__(self, weight):
+#         intermediate_dtype = weight.dtype
+#         if self.convert_func is not None:
+#             weight = self.convert_func(weight.to(dtype=mindspore.float32, copy=True), inplace=True)
 
-class LowVramPatch:
-    def __init__(self, key, patches, convert_func=None, set_func=None):
-        self.key = key
-        self.patches = patches
-        self.convert_func = convert_func
-        self.set_func = set_func
+#         if intermediate_dtype not in [mindspore.float32, mindspore.float16, mindspore.bfloat16]: #intermediate_dtype has to be one that is supported in math ops
+#             intermediate_dtype = mindspore.float32
+#             out = comfy.lora.calculate_weight(self.patches[self.key], weight.to(intermediate_dtype), self.key, intermediate_dtype=intermediate_dtype)
+#             if self.set_func is None:
+#                 return comfy.float.stochastic_rounding(out, weight.dtype, seed=string_to_seed(self.key))
+#             else:
+#                 return self.set_func(out, seed=string_to_seed(self.key), return_weight=True)
 
-    def __call__(self, weight):
-        intermediate_dtype = weight.dtype
-        if self.convert_func is not None:
-            weight = self.convert_func(weight.to(dtype=torch.float32, copy=True), inplace=True)
-
-        if intermediate_dtype not in [torch.float32, torch.float16, torch.bfloat16]: #intermediate_dtype has to be one that is supported in math ops
-            intermediate_dtype = torch.float32
-            out = comfy.lora.calculate_weight(self.patches[self.key], weight.to(intermediate_dtype), self.key, intermediate_dtype=intermediate_dtype)
-            if self.set_func is None:
-                return comfy.float.stochastic_rounding(out, weight.dtype, seed=string_to_seed(self.key))
-            else:
-                return self.set_func(out, seed=string_to_seed(self.key), return_weight=True)
-
-        out = comfy.lora.calculate_weight(self.patches[self.key], weight, self.key, intermediate_dtype=intermediate_dtype)
-        if self.set_func is not None:
-            return self.set_func(out, seed=string_to_seed(self.key), return_weight=True).to(dtype=intermediate_dtype)
-        else:
-            return out
+#         out = comfy.lora.calculate_weight(self.patches[self.key], weight, self.key, intermediate_dtype=intermediate_dtype)
+#         if self.set_func is not None:
+#             return self.set_func(out, seed=string_to_seed(self.key), return_weight=True).to(dtype=intermediate_dtype)
+#         else:
+#             return out
 
 def get_key_weight(model, key):
     set_func = None
@@ -202,7 +190,7 @@ class MemoryCounter:
         self.minimum = minimum
         # TODO: add a safe limit besides 0
 
-    def use(self, weight: torch.Tensor):
+    def use(self, weight: mindspore.Tensor):
         weight_size = weight.nelement() * weight.element_size()
         if self.is_useable(weight_size):
             self.decrement(weight_size)
@@ -216,14 +204,9 @@ class MemoryCounter:
         self.value -= used
 
 class ModelPatcher:
-    def __init__(self, model, load_device, offload_device, size=0, weight_inplace_update=False):
+    def __init__(self, model, load_device=None, offload_device=None, size=0, weight_inplace_update=False):
         self.size = size
         self.model = model
-        if not hasattr(self.model, 'device'):
-            logging.debug("Model doesn't have a device attribute.")
-            self.model.device = offload_device
-        elif self.model.device is None:
-            self.model.device = offload_device
 
         self.patches = {}
         self.backup = {}
@@ -232,8 +215,8 @@ class ModelPatcher:
         self.weight_wrapper_patches = {}
         self.model_options = {"transformer_options":{}}
         self.model_size()
-        self.load_device = load_device
-        self.offload_device = offload_device
+        self.load_device = None  #load_device
+        self.offload_device = None  #offload_device
         self.weight_inplace_update = weight_inplace_update
         self.force_cast_weights = False
         self.patches_uuid = uuid.uuid4()
@@ -251,8 +234,8 @@ class ModelPatcher:
 
         self.hook_patches: dict[comfy.hooks._HookRef] = {}
         self.hook_patches_backup: dict[comfy.hooks._HookRef] = None
-        self.hook_backup: dict[str, tuple[torch.Tensor, torch.device]] = {}
-        self.cached_hook_patches: dict[comfy.hooks.HookGroup, dict[str, torch.Tensor]] = {}
+        self.hook_backup: dict[str, tuple[mindspore.Tensor, None]] = {}
+        self.cached_hook_patches: dict[comfy.hooks.HookGroup, dict[str, mindspore.Tensor]] = {}
         self.current_hooks: Optional[comfy.hooks.HookGroup] = None
         self.forced_hooks: Optional[comfy.hooks.HookGroup] = None  # NOTE: only used for CLIP at this time
         self.is_clip = False
@@ -286,7 +269,7 @@ class ModelPatcher:
         return self.model.lowvram_patch_counter
 
     def clone(self):
-        n = self.__class__(self.model, self.load_device, self.offload_device, self.size, weight_inplace_update=self.weight_inplace_update)
+        n = self.__class__(self.model, None, None, self.size, weight_inplace_update=self.weight_inplace_update)
         n.patches = {}
         for k in self.patches:
             n.patches[k] = self.patches[k][:]
@@ -481,7 +464,7 @@ class ModelPatcher:
         self.weight_wrapper_patches[name] = self.weight_wrapper_patches.get(name, []) + [function]
         self.patches_uuid = uuid.uuid4()
 
-    def get_model_object(self, name: str) -> torch.nn.Module:
+    def get_model_object(self, name: str) -> mindspore.nn.Cell:
         """Retrieves a nested attribute from an object using dot notation considering
         object patches.
 
@@ -511,18 +494,18 @@ class ModelPatcher:
                 patch_list = patches[name]
                 for i in range(len(patch_list)):
                     if hasattr(patch_list[i], "to"):
-                        patch_list[i] = patch_list[i].to(device)
+                        patch_list[i] = patch_list[i]
         if "patches_replace" in to:
             patches = to["patches_replace"]
             for name in patches:
                 patch_list = patches[name]
                 for k in patch_list:
                     if hasattr(patch_list[k], "to"):
-                        patch_list[k] = patch_list[k].to(device)
+                        patch_list[k] = patch_list[k]
         if "model_function_wrapper" in self.model_options:
             wrap_func = self.model_options["model_function_wrapper"]
             if hasattr(wrap_func, "to"):
-                self.model_options["model_function_wrapper"] = wrap_func.to(device)
+                self.model_options["model_function_wrapper"] = wrap_func
 
     def model_patches_models(self):
         to = self.model_options["transformer_options"]
@@ -617,12 +600,9 @@ class ModelPatcher:
         inplace_update = self.weight_inplace_update or inplace_update
 
         if key not in self.backup:
-            self.backup[key] = collections.namedtuple('Dimension', ['weight', 'inplace_update'])(weight.to(device=self.offload_device, copy=inplace_update), inplace_update)
+            self.backup[key] = collections.namedtuple('Dimension', ['weight', 'inplace_update'])(weight, inplace_update)
 
-        if device_to is not None:
-            temp_weight = comfy.model_management.cast_to_device(weight, device_to, torch.float32, copy=True)
-        else:
-            temp_weight = weight.to(torch.float32, copy=True)
+        temp_weight = weight.to(mindspore.float32, copy=True)
         if convert_func is not None:
             temp_weight = convert_func(temp_weight, inplace=True)
 
@@ -699,24 +679,25 @@ class ModelPatcher:
 
                 cast_weight = self.force_cast_weights
                 if lowvram_weight:
-                    if hasattr(m, "comfy_cast_weights"):
-                        m.weight_function = []
-                        m.bias_function = []
+                    raise NotImplementedError
+                    # if hasattr(m, "comfy_cast_weights"):
+                    #     m.weight_function = []
+                    #     m.bias_function = []
 
-                    if weight_key in self.patches:
-                        if force_patch_weights:
-                            self.patch_weight_to_device(weight_key)
-                        else:
-                            _, set_func, convert_func = get_key_weight(self.model, weight_key)
-                            m.weight_function = [LowVramPatch(weight_key, self.patches, convert_func, set_func)]
-                            patch_counter += 1
-                    if bias_key in self.patches:
-                        if force_patch_weights:
-                            self.patch_weight_to_device(bias_key)
-                        else:
-                            _, set_func, convert_func = get_key_weight(self.model, bias_key)
-                            m.bias_function = [LowVramPatch(bias_key, self.patches, convert_func, set_func)]
-                            patch_counter += 1
+                    # if weight_key in self.patches:
+                    #     if force_patch_weights:
+                    #         self.patch_weight_to_device(weight_key)
+                    #     else:
+                    #         _, set_func, convert_func = get_key_weight(self.model, weight_key)
+                    #         m.weight_function = [LowVramPatch(weight_key, self.patches, convert_func, set_func)]
+                    #         patch_counter += 1
+                    # if bias_key in self.patches:
+                    #     if force_patch_weights:
+                    #         self.patch_weight_to_device(bias_key)
+                    #     else:
+                    #         _, set_func, convert_func = get_key_weight(self.model, bias_key)
+                    #         m.bias_function = [LowVramPatch(bias_key, self.patches, convert_func, set_func)]
+                    #         patch_counter += 1
 
                     cast_weight = True
                     offloaded.append((module_mem, n, m, params))
@@ -738,7 +719,7 @@ class ModelPatcher:
                 if bias_key in self.weight_wrapper_patches:
                     m.bias_function.extend(self.weight_wrapper_patches[bias_key])
 
-                mem_counter += move_weight_functions(m, device_to)
+                mem_counter += move_weight_functions(m, None)
 
             load_completely.sort(reverse=True)
             for x in load_completely:
@@ -752,13 +733,10 @@ class ModelPatcher:
                 for param in params:
                     key = "{}.{}".format(n, param)
                     self.unpin_weight(key)
-                    self.patch_weight_to_device(key, device_to=device_to)
+                    self.patch_weight_to_device(key, device_to=None)
 
                 logging.debug("lowvram: loaded module regularly {} {}".format(n, m))
                 m.comfy_patched_weights = True
-
-            for x in load_completely:
-                x[2].to(device_to)
 
             for x in offloaded:
                 n = x[1]
@@ -773,16 +751,14 @@ class ModelPatcher:
                 logging.info("loaded completely; {:.2f} MB usable, {:.2f} MB loaded, full load: {}".format(lowvram_model_memory / (1024 * 1024), mem_counter / (1024 * 1024), full_load))
                 self.model.model_lowvram = False
                 if full_load:
-                    self.model.to(device_to)
                     mem_counter = self.model_size()
 
             self.model.lowvram_patch_counter += patch_counter
-            self.model.device = device_to
             self.model.model_loaded_weight_memory = mem_counter
             self.model.current_weight_patches_uuid = self.patches_uuid
 
             for callback in self.get_all_callbacks(CallbacksMP.ON_LOAD):
-                callback(self, device_to, lowvram_model_memory, force_patch_weights, full_load)
+                callback(self, None, lowvram_model_memory, force_patch_weights, full_load)
 
             self.apply_hooks(self.forced_hooks, force_apply=True)
 
@@ -799,7 +775,7 @@ class ModelPatcher:
                 full_load = False
 
             if load_weights:
-                self.load(device_to, lowvram_model_memory=lowvram_model_memory, force_patch_weights=force_patch_weights, full_load=full_load)
+                self.load(None, lowvram_model_memory=lowvram_model_memory, force_patch_weights=force_patch_weights, full_load=full_load)
         self.inject_model()
         return self.model
 
@@ -810,7 +786,7 @@ class ModelPatcher:
             self.unpin_all_weights()
             if self.model.model_lowvram:
                 for m in self.model.modules():
-                    move_weight_functions(m, device_to)
+                    move_weight_functions(m, None)
                     wipe_lowvram_weight(m)
 
                 self.model.model_lowvram = False
@@ -827,10 +803,6 @@ class ModelPatcher:
 
             self.model.current_weight_patches_uuid = None
             self.backup.clear()
-
-            if device_to is not None:
-                self.model.to(device_to)
-                self.model.device = device_to
             self.model.model_loaded_weight_memory = 0
 
             for m in self.model.modules():
@@ -883,18 +855,18 @@ class ModelPatcher:
                     bias_key = "{}.bias".format(n)
                     if move_weight:
                         cast_weight = self.force_cast_weights
-                        m.to(device_to)
-                        module_mem += move_weight_functions(m, device_to)
+                        module_mem += move_weight_functions(m, None)
                         if lowvram_possible:
-                            if weight_key in self.patches:
-                                _, set_func, convert_func = get_key_weight(self.model, weight_key)
-                                m.weight_function.append(LowVramPatch(weight_key, self.patches, convert_func, set_func))
-                                patch_counter += 1
-                            if bias_key in self.patches:
-                                _, set_func, convert_func = get_key_weight(self.model, bias_key)
-                                m.bias_function.append(LowVramPatch(bias_key, self.patches, convert_func, set_func))
-                                patch_counter += 1
-                            cast_weight = True
+                            raise NotImplementedError
+                            # if weight_key in self.patches:
+                            #     _, set_func, convert_func = get_key_weight(self.model, weight_key)
+                            #     m.weight_function.append(LowVramPatch(weight_key, self.patches, convert_func, set_func))
+                            #     patch_counter += 1
+                            # if bias_key in self.patches:
+                            #     _, set_func, convert_func = get_key_weight(self.model, bias_key)
+                            #     m.bias_function.append(LowVramPatch(bias_key, self.patches, convert_func, set_func))
+                            #     patch_counter += 1
+                            # cast_weight = True
 
                         if cast_weight:
                             m.prev_comfy_cast_weights = m.comfy_cast_weights
@@ -916,7 +888,7 @@ class ModelPatcher:
             unpatch_weights = self.model.current_weight_patches_uuid is not None and (self.model.current_weight_patches_uuid != self.patches_uuid or force_patch_weights)
             # TODO: force_patch_weights should not unload + reload full model
             used = self.model.model_loaded_weight_memory
-            self.unpatch_model(self.offload_device, unpatch_weights=unpatch_weights)
+            self.unpatch_model(None, unpatch_weights=unpatch_weights)
             if unpatch_weights:
                 extra_memory += (used - self.model.model_loaded_weight_memory)
 
@@ -929,7 +901,7 @@ class ModelPatcher:
                 full_load = True
             current_used = self.model.model_loaded_weight_memory
             try:
-                self.load(device_to, lowvram_model_memory=current_used + extra_memory, force_patch_weights=force_patch_weights, full_load=full_load)
+                self.load(None, lowvram_model_memory=current_used + extra_memory, force_patch_weights=force_patch_weights, full_load=full_load)
             except Exception as e:
                 self.detach()
                 raise e
@@ -938,17 +910,17 @@ class ModelPatcher:
 
     def detach(self, unpatch_all=True):
         self.eject_model()
-        self.model_patches_to(self.offload_device)
+        self.model_patches_to(None)
         if unpatch_all:
-            self.unpatch_model(self.offload_device, unpatch_weights=unpatch_all)
+            self.unpatch_model(None, unpatch_weights=unpatch_all)
         for callback in self.get_all_callbacks(CallbacksMP.ON_DETACH):
             callback(self, unpatch_all)
         return self.model
 
     def current_loaded_device(self):
-        return self.model.device
+        return None
 
-    def calculate_weight(self, patches, weight, key, intermediate_dtype=torch.float32):
+    def calculate_weight(self, patches, weight, key, intermediate_dtype=mindspore.float32):
         logging.warning("The ModelPatcher.calculate_weight function is deprecated, please use: comfy.lora.calculate_weight instead")
         return comfy.lora.calculate_weight(patches, weight, key, intermediate_dtype=intermediate_dtype)
 
@@ -1098,7 +1070,7 @@ class ModelPatcher:
     def set_hook_mode(self, hook_mode: comfy.hooks.EnumHookMode):
         self.hook_mode = hook_mode
 
-    def prepare_hook_patches_current_keyframe(self, t: torch.Tensor, hook_group: comfy.hooks.HookGroup, model_options: dict[str]):
+    def prepare_hook_patches_current_keyframe(self, t: mindspore.Tensor, hook_group: comfy.hooks.HookGroup, model_options: dict[str]):
         curr_t = t[0]
         reset_current_hooks = False
         transformer_options = model_options.get("transformer_options", {})
@@ -1202,7 +1174,7 @@ class ModelPatcher:
                 memory_counter = None
                 if self.hook_mode == comfy.hooks.EnumHookMode.MaxSpeed:
                     # TODO: minimum_counter should have a minimum that conforms to loaded model requirements
-                    memory_counter = MemoryCounter(initial=comfy.model_management.get_free_memory(self.load_device),
+                    memory_counter = MemoryCounter(initial=comfy.model_management.get_free_memory(None),
                                                 minimum=comfy.model_management.minimum_inference_memory()*2)
                 # if have cached weights for hooks, use it
                 cached_weights = self.cached_hook_patches.get(hooks, None)
@@ -1233,14 +1205,14 @@ class ModelPatcher:
 
     def patch_cached_hook_weights(self, cached_weights: dict, key: str, memory_counter: MemoryCounter):
         if key not in self.hook_backup:
-            weight: torch.Tensor = comfy.utils.get_attr(self.model, key)
-            target_device = self.offload_device
+            weight: mindspore.Tensor = comfy.utils.get_attr(self.model, key)
+            target_device = None  #self.offload_device
             if self.hook_mode == comfy.hooks.EnumHookMode.MaxSpeed:
                 used = memory_counter.use(weight)
                 if used:
-                    target_device = weight.device
-            self.hook_backup[key] = (weight.to(device=target_device, copy=True), weight.device)
-        comfy.utils.copy_to_param(self.model, key, cached_weights[key][0].to(device=cached_weights[key][1]))
+                    target_device = None
+            self.hook_backup[key] = (weight, None)
+        comfy.utils.copy_to_param(self.model, key, cached_weights[key][0])
 
     def clear_cached_hook_weights(self):
         self.cached_hook_patches.clear()
@@ -1251,16 +1223,16 @@ class ModelPatcher:
             return
 
         weight, set_func, convert_func = get_key_weight(self.model, key)
-        weight: torch.Tensor
+        weight: mindspore.Tensor
         if key not in self.hook_backup:
-            target_device = self.offload_device
+            target_device = None  #self.offload_device
             if self.hook_mode == comfy.hooks.EnumHookMode.MaxSpeed:
                 used = memory_counter.use(weight)
                 if used:
-                    target_device = weight.device
-            self.hook_backup[key] = (weight.to(device=target_device, copy=True), weight.device)
+                    target_device = None
+            self.hook_backup[key] = (weight, None)
         # TODO: properly handle LowVramPatch, if it ends up an issue
-        temp_weight = comfy.model_management.cast_to_device(weight, weight.device, torch.float32, copy=True)
+        temp_weight = comfy.model_management.cast_to_device(weight, None, mindspore.float32, copy=True)
         if convert_func is not None:
             temp_weight = convert_func(temp_weight, inplace=True)
 
@@ -1275,12 +1247,12 @@ class ModelPatcher:
             set_func(out_weight, inplace_update=True, seed=string_to_seed(key))
         if self.hook_mode == comfy.hooks.EnumHookMode.MaxSpeed:
             # TODO: disable caching if not enough system RAM to do so
-            target_device = self.offload_device
+            target_device = None  #self.offload_device
             used = memory_counter.use(weight)
             if used:
-                target_device = weight.device
+                target_device = None
             self.cached_hook_patches.setdefault(hooks, {})
-            self.cached_hook_patches[hooks][key] = (out_weight.to(device=target_device, copy=False), weight.device)
+            self.cached_hook_patches[hooks][key] = (out_weight, None)
         del temp_weight
         del out_weight
         del weight
@@ -1294,11 +1266,11 @@ class ModelPatcher:
             if whitelist_keys_set:
                 for k in keys:
                     if k in whitelist_keys_set:
-                        comfy.utils.copy_to_param(self.model, k, self.hook_backup[k][0].to(device=self.hook_backup[k][1]))
+                        comfy.utils.copy_to_param(self.model, k, self.hook_backup[k][0])
                         self.hook_backup.pop(k)
             else:
                 for k in keys:
-                    comfy.utils.copy_to_param(self.model, k, self.hook_backup[k][0].to(device=self.hook_backup[k][1]))
+                    comfy.utils.copy_to_param(self.model, k, self.hook_backup[k][0])
 
                 self.hook_backup.clear()
                 self.current_hooks = None

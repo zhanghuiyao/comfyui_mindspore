@@ -22,7 +22,10 @@ import comfy.model_management
 import comfy.model_base
 import comfy.weight_adapter as weight_adapter
 import logging
-import torch
+
+import mindspore
+from mindspore import mint
+
 
 LORA_CLIP_MAP = {
     "mlp.fc1": "mlp_fc1",
@@ -316,16 +319,16 @@ def model_lora_keys_unet(model, key_map={}):
     return key_map
 
 
-def pad_tensor_to_shape(tensor: torch.Tensor, new_shape: list[int]) -> torch.Tensor:
+def pad_tensor_to_shape(tensor: mindspore.Tensor, new_shape: list[int]) -> mindspore.Tensor:
     """
     Pad a tensor to a new shape with zeros.
 
     Args:
-        tensor (torch.Tensor): The original tensor to be padded.
+        tensor (mindspore.Tensor): The original tensor to be padded.
         new_shape (List[int]): The desired shape of the padded tensor.
 
     Returns:
-        torch.Tensor: A new tensor padded with zeros to the specified shape.
+        mindspore.Tensor: A new tensor padded with zeros to the specified shape.
 
     Note:
         If the new shape is smaller than the original tensor in any dimension,
@@ -338,7 +341,7 @@ def pad_tensor_to_shape(tensor: torch.Tensor, new_shape: list[int]) -> torch.Ten
         raise ValueError("The new shape must have the same number of dimensions as the original tensor")
 
     # Create a new tensor filled with zeros
-    padded_tensor = torch.zeros(new_shape, dtype=tensor.dtype, device=tensor.device)
+    padded_tensor = mint.zeros(new_shape, dtype=tensor.dtype)
 
     # Create slicing tuples for both tensors
     orig_slices = tuple(slice(0, dim) for dim in tensor.shape)
@@ -349,7 +352,7 @@ def pad_tensor_to_shape(tensor: torch.Tensor, new_shape: list[int]) -> torch.Ten
 
     return padded_tensor
 
-def calculate_weight(patches, weight, key, intermediate_dtype=torch.float32, original_weights=None):
+def calculate_weight(patches, weight, key, intermediate_dtype=mindspore.float32, original_weights=None):
     for p in patches:
         strength = p[0]
         v = p[1]
@@ -368,7 +371,7 @@ def calculate_weight(patches, weight, key, intermediate_dtype=torch.float32, ori
             weight *= strength_model
 
         if isinstance(v, list):
-            v = (calculate_weight(v[1:], v[0][1](comfy.model_management.cast_to_device(v[0][0], weight.device, intermediate_dtype, copy=True), inplace=True), key, intermediate_dtype=intermediate_dtype), )
+            v = (calculate_weight(v[1:], v[0][1](comfy.model_management.cast_to_device(v[0][0], None, intermediate_dtype, copy=True), inplace=True), key, intermediate_dtype=intermediate_dtype), )
 
         if isinstance(v, weight_adapter.WeightAdapterBase):
             output = v.calculate_weight(weight, key, strength, strength_model, offset, function, intermediate_dtype, original_weights)
@@ -387,7 +390,7 @@ def calculate_weight(patches, weight, key, intermediate_dtype=torch.float32, ori
             v = v[1]
 
         if patch_type == "diff":
-            diff: torch.Tensor = v[0]
+            diff: mindspore.Tensor = v[0]
             # An extra flag to pad the weight if the diff's shape is larger than the weight
             do_pad_weight = len(v) > 1 and v[1]['pad_weight']
             if do_pad_weight and diff.shape != weight.shape:
@@ -398,14 +401,14 @@ def calculate_weight(patches, weight, key, intermediate_dtype=torch.float32, ori
                 if diff.shape != weight.shape:
                     logging.warning("WARNING SHAPE MISMATCH {} WEIGHT NOT MERGED {} != {}".format(key, diff.shape, weight.shape))
                 else:
-                    weight += function(strength * comfy.model_management.cast_to_device(diff, weight.device, weight.dtype))
+                    weight += function(strength * comfy.model_management.cast_to_device(diff, None, weight.dtype))
         elif patch_type == "set":
             weight.copy_(v[0])
         elif patch_type == "model_as_lora":
-            target_weight: torch.Tensor = v[0]
-            diff_weight = comfy.model_management.cast_to_device(target_weight, weight.device, intermediate_dtype) - \
-                          comfy.model_management.cast_to_device(original_weights[key][0][0], weight.device, intermediate_dtype)
-            weight += function(strength * comfy.model_management.cast_to_device(diff_weight, weight.device, weight.dtype))
+            target_weight: mindspore.Tensor = v[0]
+            diff_weight = comfy.model_management.cast_to_device(target_weight, None, intermediate_dtype) - \
+                          comfy.model_management.cast_to_device(original_weights[key][0][0], None, intermediate_dtype)
+            weight += function(strength * comfy.model_management.cast_to_device(diff_weight, None, weight.dtype))
         else:
             logging.warning("patch type not recognized {} {}".format(patch_type, key))
 

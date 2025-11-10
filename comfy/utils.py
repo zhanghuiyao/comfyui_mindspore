@@ -15,95 +15,43 @@
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
 """
-
-
-import torch
 import math
 import struct
-import comfy.checkpoint_pickle
-import safetensors.torch
 import numpy as np
 from PIL import Image
 import logging
 import itertools
-from torch.nn.functional import interpolate
 from einops import rearrange
 from comfy.cli_args import args
+
+import mindspore
+from mindspore import mint, ops
+from mindspore.mint.nn.functional import interpolate
+
+from mindone.safetensors.mindspore import save_file
+
 
 MMAP_TORCH_FILES = args.mmap_torch_files
 DISABLE_MMAP = args.disable_mmap
 
 ALWAYS_SAFE_LOAD = False
-if hasattr(torch.serialization, "add_safe_globals"):  # TODO: this was added in pytorch 2.4, the unsafe path should be removed once earlier versions are deprecated
-    class ModelCheckpoint:
-        pass
-    ModelCheckpoint.__module__ = "pytorch_lightning.callbacks.model_checkpoint"
 
-    def scalar(*args, **kwargs):
-        from numpy.core.multiarray import scalar as sc
-        return sc(*args, **kwargs)
-    scalar.__module__ = "numpy.core.multiarray"
 
-    from numpy import dtype
-    from numpy.dtypes import Float64DType
-    from _codecs import encode
-
-    torch.serialization.add_safe_globals([ModelCheckpoint, scalar, dtype, Float64DType, encode])
-    ALWAYS_SAFE_LOAD = True
-    logging.info("Checkpoint files will always be loaded safely.")
-else:
-    logging.info("Warning, you are using an old pytorch version and some ckpt/pt files might be loaded unsafely. Upgrading to 2.4 or above is recommended.")
-
-def load_torch_file(ckpt, safe_load=False, device=None, return_metadata=False):
-    if device is None:
-        device = torch.device("cpu")
+def load_mindspore_file(ckpt, safe_load=False, return_metadata=False):
     metadata = None
     if ckpt.lower().endswith(".safetensors") or ckpt.lower().endswith(".sft"):
-        try:
-            with safetensors.safe_open(ckpt, framework="pt", device=device.type) as f:
-                sd = {}
-                for k in f.keys():
-                    tensor = f.get_tensor(k)
-                    if DISABLE_MMAP:  # TODO: Not sure if this is the best way to bypass the mmap issues
-                        tensor = tensor.to(device=device, copy=True)
-                    sd[k] = tensor
-                if return_metadata:
-                    metadata = f.metadata()
-        except Exception as e:
-            if len(e.args) > 0:
-                message = e.args[0]
-                if "HeaderTooLarge" in message:
-                    raise ValueError("{}\n\nFile path: {}\n\nThe safetensors file is corrupt or invalid. Make sure this is actually a safetensors file and not a ckpt or pt or other filetype.".format(message, ckpt))
-                if "MetadataIncompleteBuffer" in message:
-                    raise ValueError("{}\n\nFile path: {}\n\nThe safetensors file is corrupt/incomplete. Check the file size and make sure you have copied/downloaded it correctly.".format(message, ckpt))
-            raise e
+        sd = mindspore.load_checkpoint(ckpt, format="safetensors")
+    elif ckpt.lower().endswith(".ckpt"):
+        sd = mindspore.load_checkpoint(ckpt, format="ckpt")
     else:
-        torch_args = {}
-        if MMAP_TORCH_FILES:
-            torch_args["mmap"] = True
-
-        if safe_load or ALWAYS_SAFE_LOAD:
-            pl_sd = torch.load(ckpt, map_location=device, weights_only=True, **torch_args)
-        else:
-            logging.warning("WARNING: loading {} unsafely, upgrade your pytorch to 2.4 or newer to load this file safely.".format(ckpt))
-            pl_sd = torch.load(ckpt, map_location=device, pickle_module=comfy.checkpoint_pickle)
-        if "state_dict" in pl_sd:
-            sd = pl_sd["state_dict"]
-        else:
-            if len(pl_sd) == 1:
-                key = list(pl_sd.keys())[0]
-                sd = pl_sd[key]
-                if not isinstance(sd, dict):
-                    sd = pl_sd
-            else:
-                sd = pl_sd
+        raise NotImplementedError
     return (sd, metadata) if return_metadata else sd
 
-def save_torch_file(sd, ckpt, metadata=None):
+def save_mindspore_file(sd, ckpt, metadata=None):
     if metadata is not None:
-        safetensors.torch.save_file(sd, ckpt, metadata=metadata)
+        save_file(sd, ckpt, metadata=metadata)
     else:
-        safetensors.torch.save_file(sd, ckpt)
+        save_file(sd, ckpt)
 
 def calculate_parameters(sd, prefix=""):
     params = 0
@@ -334,7 +282,7 @@ def unet_to_diffusers(unet_config):
 
 def swap_scale_shift(weight):
     shift, scale = weight.chunk(2, dim=0)
-    new_weight = torch.cat([scale, shift], dim=0)
+    new_weight = mint.cat([scale, shift], dim=0)
     return new_weight
 
 MMDIT_MAP_BASIC = {
@@ -690,7 +638,7 @@ def resize_to_batch_size(tensor, batch_size):
     if batch_size <= 1:
         return tensor[:batch_size]
 
-    output = torch.empty([batch_size] + list(tensor.shape)[1:], dtype=tensor.dtype, device=tensor.device)
+    output = mint.empty([batch_size] + list(tensor.shape)[1:], dtype=tensor.dtype)
     if batch_size < in_batch_size:
         scale = (in_batch_size - 1) / (batch_size - 1)
         for i in range(batch_size):
@@ -745,7 +693,7 @@ def set_attr(obj, attr, value):
     return prev
 
 def set_attr_param(obj, attr, value):
-    return set_attr(obj, attr, torch.nn.Parameter(value, requires_grad=False))
+    return set_attr(obj, attr, mindspore.Parameter(value, requires_grad=False))
 
 def copy_to_param(obj, attr, value):
     # inplace update tensor instead of replacing it
@@ -786,8 +734,8 @@ def bislerp(samples, width, height):
         c = b1.shape[-1]
 
         #norms
-        b1_norms = torch.norm(b1, dim=-1, keepdim=True)
-        b2_norms = torch.norm(b2, dim=-1, keepdim=True)
+        b1_norms = mint.norm(b1, dim=-1, keepdim=True)
+        b2_norms = mint.norm(b2, dim=-1, keepdim=True)
 
         #normalize
         b1_normalized = b1 / b1_norms
@@ -799,11 +747,11 @@ def bislerp(samples, width, height):
 
         #slerp
         dot = (b1_normalized*b2_normalized).sum(1)
-        omega = torch.acos(dot)
-        so = torch.sin(omega)
+        omega = mint.acos(dot)
+        so = mint.sin(omega)
 
         #technically not mathematically correct, but more pleasing?
-        res = (torch.sin((1.0-r.squeeze(1))*omega)/so).unsqueeze(1)*b1_normalized + (torch.sin(r.squeeze(1)*omega)/so).unsqueeze(1) * b2_normalized
+        res = (mint.sin((1.0-r.squeeze(1))*omega)/so).unsqueeze(1)*b1_normalized + (mint.sin(r.squeeze(1)*omega)/so).unsqueeze(1) * b2_normalized
         res *= (b1_norms * (1.0-r) + b2_norms * r).expand(-1,c)
 
         #edge cases for same or polar opposites
@@ -811,16 +759,16 @@ def bislerp(samples, width, height):
         res[dot < 1e-5 - 1] = (b1 * (1.0-r) + b2 * r)[dot < 1e-5 - 1]
         return res
 
-    def generate_bilinear_data(length_old, length_new, device):
-        coords_1 = torch.arange(length_old, dtype=torch.float32, device=device).reshape((1,1,1,-1))
-        coords_1 = torch.nn.functional.interpolate(coords_1, size=(1, length_new), mode="bilinear")
+    def generate_bilinear_data(length_old, length_new):
+        coords_1 = mint.arange(length_old, dtype=mindspore.float32).reshape((1,1,1,-1))
+        coords_1 = mint.functional.interpolate(coords_1, size=(1, length_new), mode="bilinear")
         ratios = coords_1 - coords_1.floor()
-        coords_1 = coords_1.to(torch.int64)
+        coords_1 = coords_1.to(mindspore.int64)
 
-        coords_2 = torch.arange(length_old, dtype=torch.float32, device=device).reshape((1,1,1,-1)) + 1
+        coords_2 = mint.arange(length_old, dtype=mindspore.float32).reshape((1,1,1,-1)) + 1
         coords_2[:,:,:,-1] -= 1
-        coords_2 = torch.nn.functional.interpolate(coords_2, size=(1, length_new), mode="bilinear")
-        coords_2 = coords_2.to(torch.int64)
+        coords_2 = mint.functional.interpolate(coords_2, size=(1, length_new), mode="bilinear")
+        coords_2 = coords_2.to(mindspore.int64)
         return ratios, coords_1, coords_2
 
     orig_dtype = samples.dtype
@@ -829,7 +777,7 @@ def bislerp(samples, width, height):
     h_new, w_new = (height, width)
 
     #linear w
-    ratios, coords_1, coords_2 = generate_bilinear_data(w, w_new, samples.device)
+    ratios, coords_1, coords_2 = generate_bilinear_data(w, w_new)
     coords_1 = coords_1.expand((n, c, h, -1))
     coords_2 = coords_2.expand((n, c, h, -1))
     ratios = ratios.expand((n, 1, h, -1))
@@ -842,7 +790,7 @@ def bislerp(samples, width, height):
     result = result.reshape(n, h, w_new, c).movedim(-1, 1)
 
     #linear h
-    ratios, coords_1, coords_2 = generate_bilinear_data(h, h_new, samples.device)
+    ratios, coords_1, coords_2 = generate_bilinear_data(h, h_new)
     coords_1 = coords_1.reshape((1,1,-1,1)).expand((n, c, -1, w_new))
     coords_2 = coords_2.reshape((1,1,-1,1)).expand((n, c, -1, w_new))
     ratios = ratios.reshape((1,1,-1,1)).expand((n, 1, -1, w_new))
@@ -856,11 +804,11 @@ def bislerp(samples, width, height):
     return result.to(orig_dtype)
 
 def lanczos(samples, width, height):
-    images = [Image.fromarray(np.clip(255. * image.movedim(0, -1).cpu().numpy(), 0, 255).astype(np.uint8)) for image in samples]
+    images = [Image.fromarray(np.clip(255. * image.movedim(0, -1).numpy(), 0, 255).astype(np.uint8)) for image in samples]
     images = [image.resize((width, height), resample=Image.Resampling.LANCZOS) for image in images]
-    images = [torch.from_numpy(np.array(image).astype(np.float32) / 255.0).movedim(-1, 0) for image in images]
-    result = torch.stack(images)
-    return result.to(samples.device, samples.dtype)
+    images = [mindspore.from_numpy(np.array(image).astype(np.float32) / 255.0).movedim(-1, 0) for image in images]
+    result = mint.stack(images)
+    return result.to(samples.dtype)
 
 def common_upscale(samples, width, height, upscale_method, crop):
         orig_shape = tuple(samples.shape)
@@ -888,7 +836,7 @@ def common_upscale(samples, width, height, upscale_method, crop):
         elif upscale_method == "lanczos":
             out = lanczos(s, width, height)
         else:
-            out = torch.nn.functional.interpolate(s, size=(height, width), mode=upscale_method)
+            out = mint.functional.interpolate(s, size=(height, width), mode=upscale_method)
 
         if len(orig_shape) == 4:
             return out
@@ -901,8 +849,8 @@ def get_tiled_scale_steps(width, height, tile_x, tile_y, overlap):
     cols = 1 if width <= tile_x else math.ceil((width - overlap) / (tile_x - overlap))
     return rows * cols
 
-@torch.inference_mode()
-def tiled_scale_multidim(samples, function, tile=(64, 64), overlap=8, upscale_amount=4, out_channels=3, output_device="cpu", downscale=False, index_formulas=None, pbar=None):
+# @torch.inference_mode()
+def tiled_scale_multidim(samples, function, tile=(64, 64), overlap=8, upscale_amount=4, out_channels=3, downscale=False, index_formulas=None, pbar=None):
     dims = len(tile)
 
     if not (isinstance(upscale_amount, (tuple, list))):
@@ -958,20 +906,20 @@ def tiled_scale_multidim(samples, function, tile=(64, 64), overlap=8, upscale_am
             out.append(round(get_scale(i, a[i])))
         return out
 
-    output = torch.empty([samples.shape[0], out_channels] + mult_list_upscale(samples.shape[2:]), device=output_device)
+    output = mint.empty([samples.shape[0], out_channels] + mult_list_upscale(samples.shape[2:]))
 
     for b in range(samples.shape[0]):
         s = samples[b:b+1]
 
         # handle entire input fitting in a single tile
         if all(s.shape[d+2] <= tile[d] for d in range(dims)):
-            output[b:b+1] = function(s).to(output_device)
+            output[b:b+1] = function(s)
             if pbar is not None:
                 pbar.update(1)
             continue
 
-        out = torch.zeros([s.shape[0], out_channels] + mult_list_upscale(s.shape[2:]), device=output_device)
-        out_div = torch.zeros([s.shape[0], out_channels] + mult_list_upscale(s.shape[2:]), device=output_device)
+        out = mint.zeros([s.shape[0], out_channels] + mult_list_upscale(s.shape[2:]))
+        out_div = mint.zeros([s.shape[0], out_channels] + mult_list_upscale(s.shape[2:]))
 
         positions = [range(0, s.shape[d+2] - overlap[d], tile[d] - overlap[d]) if s.shape[d+2] > tile[d] else [0] for d in range(dims)]
 
@@ -985,8 +933,8 @@ def tiled_scale_multidim(samples, function, tile=(64, 64), overlap=8, upscale_am
                 s_in = s_in.narrow(d + 2, pos, l)
                 upscaled.append(round(get_pos(d, pos)))
 
-            ps = function(s_in).to(output_device)
-            mask = torch.ones_like(ps)
+            ps = function(s_in)
+            mask = mint.ones_like(ps)
 
             for d in range(2, dims + 2):
                 feather = round(get_scale(d - 2, overlap[d - 2]))
@@ -1010,10 +958,13 @@ def tiled_scale_multidim(samples, function, tile=(64, 64), overlap=8, upscale_am
                 pbar.update(1)
 
         output[b:b+1] = out/out_div
+
+    output = ops.stop_gradient(output)
+
     return output
 
-def tiled_scale(samples, function, tile_x=64, tile_y=64, overlap = 8, upscale_amount = 4, out_channels = 3, output_device="cpu", pbar = None):
-    return tiled_scale_multidim(samples, function, (tile_y, tile_x), overlap=overlap, upscale_amount=upscale_amount, out_channels=out_channels, output_device=output_device, pbar=pbar)
+def tiled_scale(samples, function, tile_x=64, tile_y=64, overlap = 8, upscale_amount = 4, out_channels = 3, output_device=None, pbar = None):
+    return tiled_scale_multidim(samples, function, (tile_y, tile_x), overlap=overlap, upscale_amount=upscale_amount, out_channels=out_channels, pbar=pbar)
 
 PROGRESS_BAR_ENABLED = True
 def set_progress_bar_enabled(enabled):
@@ -1060,13 +1011,13 @@ def reshape_mask(input_mask, output_shape):
             input_mask = input_mask.reshape((1, 1, -1, input_mask.shape[-2], input_mask.shape[-1]))
         scale_mode = "trilinear"
 
-    mask = torch.nn.functional.interpolate(input_mask, size=output_shape[2:], mode=scale_mode)
+    mask = mint.functional.interpolate(input_mask, size=output_shape[2:], mode=scale_mode)
     if mask.shape[1] < output_shape[1]:
         mask = mask.repeat((1, output_shape[1]) + (1,) * dims)[:,:output_shape[1]]
     mask = repeat_to_batch_size(mask, output_shape[0])
     return mask
 
-def upscale_dit_mask(mask: torch.Tensor, img_size_in, img_size_out):
+def upscale_dit_mask(mask: mindspore.Tensor, img_size_in, img_size_out):
         hi, wi = img_size_in
         ho, wo = img_size_out
         # if it's already the correct size, no need to do anything
@@ -1100,9 +1051,9 @@ def upscale_dit_mask(mask: torch.Tensor, img_size_in, img_size_out):
         img_to_txt = rearrange  (img_to_txt, "b t h w -> b (h w) t")
 
         # reassemble the mask from blocks
-        out = torch.cat([
-            torch.cat([txt_to_txt, txt_to_img], dim=2),
-            torch.cat([img_to_txt, img_to_img], dim=2)],
+        out = mint.cat([
+            mint.cat([txt_to_txt, txt_to_img], dim=2),
+            mint.cat([img_to_txt, img_to_img], dim=2)],
             dim=1
         )
         return out
@@ -1114,7 +1065,7 @@ def pack_latents(latents):
         latent_shapes.append(tensor.shape)
         tensors.append(tensor.reshape(tensor.shape[0], 1, -1))
 
-    latent = torch.cat(tensors, dim=-1)
+    latent = mint.cat(tensors, dim=-1)
     return latent, latent_shapes
 
 def unpack_latents(combined_latent, latent_shapes):

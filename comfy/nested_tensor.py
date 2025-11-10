@@ -1,4 +1,6 @@
-import torch
+import mindspore
+from mindspore import mint
+
 
 class NestedTensor:
     def __init__(self, tensors):
@@ -49,7 +51,7 @@ class NestedTensor:
         return self.tensors[0].new_ones(*args, **kwargs)
 
     def float(self):
-        return self.to(dtype=torch.float)
+        return self.to(dtype=mindspore.float)
 
     def chunk(self, *args, **kwargs):
         return self.apply_operation(None, lambda x, y: x.chunk(*args, **kwargs))
@@ -87,5 +89,5 @@ def cat_nested(tensors, *args, **kwargs):
         tens = []
         for j in range(len(tensors)):
             tens.append(tensors[j].tensors[i])
-        cated_tensors.append(torch.cat(tens, *args, **kwargs))
+        cated_tensors.append(mint.cat(tens, *args, **kwargs))
     return NestedTensor(cated_tensors)

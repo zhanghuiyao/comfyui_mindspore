@@ -1,10 +1,11 @@
 from abc import abstractmethod
-
-import torch as th
-import torch.nn as nn
-import torch.nn.functional as F
 from einops import rearrange
 import logging
+
+import mindspore
+from mindspore import mint
+from mindspore.mint import nn
+from mindspore.mint import functional as F
 
 from .util import (
     checkpoint,
@@ -18,13 +19,14 @@ import comfy.patcher_extension
 import comfy.ops
 ops = comfy.ops.disable_weight_init
 
-class TimestepBlock(nn.Module):
+
+class TimestepBlock(nn.Cell):
     """
     Any module where forward() takes timestep embeddings as a second argument.
     """
 
     @abstractmethod
-    def forward(self, x, emb):
+    def construct(self, x, emb):
         """
         Apply the module to `x` given `emb` timestep embeddings.
         """
@@ -59,16 +61,16 @@ def forward_timestep_embed(ts, x, emb, context=None, transformer_options={}, out
             x = layer(x)
     return x
 
-class TimestepEmbedSequential(nn.Sequential, TimestepBlock):
+class TimestepEmbedSequential(mindspore.nn.SequentialCell, TimestepBlock):
     """
     A sequential module that passes timestep embeddings to the children that
     support it as an extra input.
     """
 
-    def forward(self, *args, **kwargs):
+    def construct(self, *args, **kwargs):
         return forward_timestep_embed(self, *args, **kwargs)
 
-class Upsample(nn.Module):
+class Upsample(nn.Cell):
     """
     An upsampling layer with an optional convolution.
     :param channels: channels in the inputs and outputs.
@@ -77,16 +79,16 @@ class Upsample(nn.Module):
                  upsampling occurs in the inner-two dimensions.
     """
 
-    def __init__(self, channels, use_conv, dims=2, out_channels=None, padding=1, dtype=None, device=None, operations=ops):
+    def __init__(self, channels, use_conv, dims=2, out_channels=None, padding=1, dtype=None, operations=ops):
         super().__init__()
         self.channels = channels
         self.out_channels = out_channels or channels
         self.use_conv = use_conv
         self.dims = dims
         if use_conv:
-            self.conv = operations.conv_nd(dims, self.channels, self.out_channels, 3, padding=padding, dtype=dtype, device=device)
+            self.conv = operations.conv_nd(dims, self.channels, self.out_channels, 3, padding=padding, dtype=dtype)
 
-    def forward(self, x, output_shape=None):
+    def construct(self, x, output_shape=None):
         assert x.shape[1] == self.channels
         if self.dims == 3:
             shape = [x.shape[2], x.shape[3] * 2, x.shape[4] * 2]
@@ -104,7 +106,7 @@ class Upsample(nn.Module):
             x = self.conv(x)
         return x
 
-class Downsample(nn.Module):
+class Downsample(nn.Cell):
     """
     A downsampling layer with an optional convolution.
     :param channels: channels in the inputs and outputs.
@@ -113,7 +115,7 @@ class Downsample(nn.Module):
                  downsampling occurs in the inner-two dimensions.
     """
 
-    def __init__(self, channels, use_conv, dims=2, out_channels=None, padding=1, dtype=None, device=None, operations=ops):
+    def __init__(self, channels, use_conv, dims=2, out_channels=None, padding=1, dtype=None, operations=ops):
         super().__init__()
         self.channels = channels
         self.out_channels = out_channels or channels
@@ -122,13 +124,13 @@ class Downsample(nn.Module):
         stride = 2 if dims != 3 else (1, 2, 2)
         if use_conv:
             self.op = operations.conv_nd(
-                dims, self.channels, self.out_channels, 3, stride=stride, padding=padding, dtype=dtype, device=device
+                dims, self.channels, self.out_channels, 3, stride=stride, padding=padding, dtype=dtype
             )
         else:
             assert self.channels == self.out_channels
             self.op = avg_pool_nd(dims, kernel_size=stride, stride=stride)
 
-    def forward(self, x):
+    def construct(self, x):
         assert x.shape[1] == self.channels
         return self.op(x)
 
@@ -165,7 +167,6 @@ class ResBlock(TimestepBlock):
         exchange_temb_dims=False,
         skip_t_emb=False,
         dtype=None,
-        device=None,
         operations=ops
     ):
         super().__init__()
@@ -183,20 +184,20 @@ class ResBlock(TimestepBlock):
         else:
             padding = kernel_size // 2
 
-        self.in_layers = nn.Sequential(
-            operations.GroupNorm(32, channels, dtype=dtype, device=device),
+        self.in_layers = mindspore.nn.SequentialCell([
+            operations.GroupNorm(32, channels, dtype=dtype),
             nn.SiLU(),
-            operations.conv_nd(dims, channels, self.out_channels, kernel_size, padding=padding, dtype=dtype, device=device),
-        )
+            operations.conv_nd(dims, channels, self.out_channels, kernel_size, padding=padding, dtype=dtype),
+        ])
 
         self.updown = up or down
 
         if up:
-            self.h_upd = Upsample(channels, False, dims, dtype=dtype, device=device)
-            self.x_upd = Upsample(channels, False, dims, dtype=dtype, device=device)
+            self.h_upd = Upsample(channels, False, dims, dtype=dtype)
+            self.x_upd = Upsample(channels, False, dims, dtype=dtype)
         elif down:
-            self.h_upd = Downsample(channels, False, dims, dtype=dtype, device=device)
-            self.x_upd = Downsample(channels, False, dims, dtype=dtype, device=device)
+            self.h_upd = Downsample(channels, False, dims, dtype=dtype)
+            self.x_upd = Downsample(channels, False, dims, dtype=dtype)
         else:
             self.h_upd = self.x_upd = nn.Identity()
 
@@ -205,31 +206,31 @@ class ResBlock(TimestepBlock):
             self.emb_layers = None
             self.exchange_temb_dims = False
         else:
-            self.emb_layers = nn.Sequential(
+            self.emb_layers = mindspore.nn.SequentialCell([
                 nn.SiLU(),
                 operations.Linear(
                     emb_channels,
-                    2 * self.out_channels if use_scale_shift_norm else self.out_channels, dtype=dtype, device=device
+                    2 * self.out_channels if use_scale_shift_norm else self.out_channels, dtype=dtype
                 ),
-            )
-        self.out_layers = nn.Sequential(
-            operations.GroupNorm(32, self.out_channels, dtype=dtype, device=device),
+            ])
+        self.out_layers = mindspore.nn.SequentialCell([
+            operations.GroupNorm(32, self.out_channels, dtype=dtype),
             nn.SiLU(),
             nn.Dropout(p=dropout),
-            operations.conv_nd(dims, self.out_channels, self.out_channels, kernel_size, padding=padding, dtype=dtype, device=device)
+            operations.conv_nd(dims, self.out_channels, self.out_channels, kernel_size, padding=padding, dtype=dtype)
             ,
-        )
+        ])
 
         if self.out_channels == channels:
             self.skip_connection = nn.Identity()
         elif use_conv:
             self.skip_connection = operations.conv_nd(
-                dims, channels, self.out_channels, kernel_size, padding=padding, dtype=dtype, device=device
+                dims, channels, self.out_channels, kernel_size, padding=padding, dtype=dtype
             )
         else:
-            self.skip_connection = operations.conv_nd(dims, channels, self.out_channels, 1, dtype=dtype, device=device)
+            self.skip_connection = operations.conv_nd(dims, channels, self.out_channels, 1, dtype=dtype)
 
-    def forward(self, x, emb):
+    def construct(self, x, emb):
         """
         Apply the block to a Tensor, conditioned on a timestep embedding.
         :param x: an [N x C x ...] Tensor of features.
@@ -260,7 +261,7 @@ class ResBlock(TimestepBlock):
             out_norm, out_rest = self.out_layers[0], self.out_layers[1:]
             h = out_norm(h)
             if emb_out is not None:
-                scale, shift = th.chunk(emb_out, 2, dim=1)
+                scale, shift = mint.chunk(emb_out, 2, dim=1)
                 h *= (1 + scale)
                 h += shift
             h = out_rest(h)
@@ -290,7 +291,6 @@ class VideoResBlock(ResBlock):
         up: bool = False,
         down: bool = False,
         dtype=None,
-        device=None,
         operations=ops
     ):
         super().__init__(
@@ -305,7 +305,6 @@ class VideoResBlock(ResBlock):
             up=up,
             down=down,
             dtype=dtype,
-            device=device,
             operations=operations
         )
 
@@ -323,7 +322,6 @@ class VideoResBlock(ResBlock):
             use_checkpoint=use_checkpoint,
             exchange_temb_dims=True,
             dtype=dtype,
-            device=device,
             operations=operations
         )
         self.time_mixer = AlphaBlender(
@@ -332,13 +330,13 @@ class VideoResBlock(ResBlock):
             rearrange_pattern="b t -> b 1 t 1 1",
         )
 
-    def forward(
+    def construct(
         self,
-        x: th.Tensor,
-        emb: th.Tensor,
+        x: mindspore.Tensor,
+        emb: mindspore.Tensor,
         num_video_frames: int,
         image_only_indicator = None,
-    ) -> th.Tensor:
+    ) -> mindspore.Tensor:
         x = super().forward(x, emb)
 
         x_mix = rearrange(x, "(b t) c h w -> b c t h w", t=num_video_frames)
@@ -354,12 +352,12 @@ class VideoResBlock(ResBlock):
         return x
 
 
-class Timestep(nn.Module):
+class Timestep(nn.Cell):
     def __init__(self, dim):
         super().__init__()
         self.dim = dim
 
-    def forward(self, t):
+    def construct(self, t):
         return timestep_embedding(t, self.dim)
 
 def apply_control(h, control, name):
@@ -372,7 +370,7 @@ def apply_control(h, control, name):
                 logging.warning("warning control could not be applied {} {}".format(h.shape, ctrl.shape))
     return h
 
-class UNetModel(nn.Module):
+class UNetModel(nn.Cell):
     """
     The full UNet model with attention and timestep embedding.
     :param in_channels: channels in the input Tensor.
@@ -411,7 +409,7 @@ class UNetModel(nn.Module):
         dims=2,
         num_classes=None,
         use_checkpoint=False,
-        dtype=th.float32,
+        dtype=mindspore.float32,
         num_heads=-1,
         num_head_channels=-1,
         num_heads_upsample=-1,
@@ -441,7 +439,6 @@ class UNetModel(nn.Module):
         disable_temporal_crossattention=False,
         max_ddpm_temb_period=10000,
         attn_precision=None,
-        device=None,
         operations=ops,
     ):
         super().__init__()
@@ -497,34 +494,34 @@ class UNetModel(nn.Module):
         self.default_num_video_frames = None
 
         time_embed_dim = model_channels * 4
-        self.time_embed = nn.Sequential(
-            operations.Linear(model_channels, time_embed_dim, dtype=self.dtype, device=device),
+        self.time_embed = mindspore.nn.SequentialCell([
+            operations.Linear(model_channels, time_embed_dim, dtype=self.dtype),
             nn.SiLU(),
-            operations.Linear(time_embed_dim, time_embed_dim, dtype=self.dtype, device=device),
-        )
+            operations.Linear(time_embed_dim, time_embed_dim, dtype=self.dtype),
+        ])
 
         if self.num_classes is not None:
             if isinstance(self.num_classes, int):
-                self.label_emb = nn.Embedding(num_classes, time_embed_dim, dtype=self.dtype, device=device)
+                self.label_emb = nn.Embedding(num_classes, time_embed_dim, dtype=self.dtype)
             elif self.num_classes == "continuous":
                 logging.debug("setting up linear c_adm embedding layer")
                 self.label_emb = nn.Linear(1, time_embed_dim)
             elif self.num_classes == "sequential":
                 assert adm_in_channels is not None
-                self.label_emb = nn.Sequential(
-                    nn.Sequential(
-                        operations.Linear(adm_in_channels, time_embed_dim, dtype=self.dtype, device=device),
+                self.label_emb = mindspore.nn.SequentialCell([
+                    mindspore.nn.SequentialCell([
+                        operations.Linear(adm_in_channels, time_embed_dim, dtype=self.dtype),
                         nn.SiLU(),
-                        operations.Linear(time_embed_dim, time_embed_dim, dtype=self.dtype, device=device),
-                    )
-                )
+                        operations.Linear(time_embed_dim, time_embed_dim, dtype=self.dtype),
+                    ])
+                ])
             else:
                 raise ValueError()
 
-        self.input_blocks = nn.ModuleList(
+        self.input_blocks = nn.CellList(
             [
                 TimestepEmbedSequential(
-                    operations.conv_nd(dims, in_channels, model_channels, 3, padding=1, dtype=self.dtype, device=device)
+                    operations.conv_nd(dims, in_channels, model_channels, 3, padding=1, dtype=self.dtype)
                 )
             ]
         )
@@ -561,13 +558,13 @@ class UNetModel(nn.Module):
                     disable_temporal_crossattention=disable_temporal_crossattention,
                     max_time_embed_period=max_ddpm_temb_period,
                     attn_precision=attn_precision,
-                    dtype=self.dtype, device=device, operations=operations
+                    dtype=self.dtype, operations=operations
                 )
             else:
                 return SpatialTransformer(
                                 ch, num_heads, dim_head, depth=depth, context_dim=context_dim,
                                 disable_self_attn=disable_self_attn, use_linear=use_linear_in_transformer,
-                                use_checkpoint=use_checkpoint, attn_precision=attn_precision, dtype=self.dtype, device=device, operations=operations
+                                use_checkpoint=use_checkpoint, attn_precision=attn_precision, dtype=self.dtype, operations=operations
                             )
 
         def get_resblock(
@@ -584,7 +581,6 @@ class UNetModel(nn.Module):
             down=False,
             up=False,
             dtype=None,
-            device=None,
             operations=ops
         ):
             if self.use_temporal_resblocks:
@@ -602,7 +598,6 @@ class UNetModel(nn.Module):
                     down=down,
                     up=up,
                     dtype=dtype,
-                    device=device,
                     operations=operations
                 )
             else:
@@ -617,7 +612,6 @@ class UNetModel(nn.Module):
                     down=down,
                     up=up,
                     dtype=dtype,
-                    device=device,
                     operations=operations
                 )
 
@@ -636,7 +630,6 @@ class UNetModel(nn.Module):
                         use_checkpoint=use_checkpoint,
                         use_scale_shift_norm=use_scale_shift_norm,
                         dtype=self.dtype,
-                        device=device,
                         operations=operations,
                     )
                 ]
@@ -681,12 +674,11 @@ class UNetModel(nn.Module):
                             use_scale_shift_norm=use_scale_shift_norm,
                             down=True,
                             dtype=self.dtype,
-                            device=device,
                             operations=operations
                         )
                         if resblock_updown
                         else Downsample(
-                            ch, conv_resample, dims=dims, out_channels=out_ch, dtype=self.dtype, device=device, operations=operations
+                            ch, conv_resample, dims=dims, out_channels=out_ch, dtype=self.dtype, operations=operations
                         )
                     )
                 )
@@ -716,7 +708,6 @@ class UNetModel(nn.Module):
                 use_checkpoint=use_checkpoint,
                 use_scale_shift_norm=use_scale_shift_norm,
                 dtype=self.dtype,
-                device=device,
                 operations=operations
             )]
 
@@ -739,13 +730,12 @@ class UNetModel(nn.Module):
                     use_checkpoint=use_checkpoint,
                     use_scale_shift_norm=use_scale_shift_norm,
                     dtype=self.dtype,
-                    device=device,
                     operations=operations
                 )]
             self.middle_block = TimestepEmbedSequential(*mid_block)
         self._feature_size += ch
 
-        self.output_blocks = nn.ModuleList([])
+        self.output_blocks = nn.CellList([])
         for level, mult in list(enumerate(channel_mult))[::-1]:
             for i in range(self.num_res_blocks[level] + 1):
                 ich = input_block_chans.pop()
@@ -762,7 +752,6 @@ class UNetModel(nn.Module):
                         use_checkpoint=use_checkpoint,
                         use_scale_shift_norm=use_scale_shift_norm,
                         dtype=self.dtype,
-                        device=device,
                         operations=operations
                     )
                 ]
@@ -805,29 +794,28 @@ class UNetModel(nn.Module):
                             use_scale_shift_norm=use_scale_shift_norm,
                             up=True,
                             dtype=self.dtype,
-                            device=device,
                             operations=operations
                         )
                         if resblock_updown
-                        else Upsample(ch, conv_resample, dims=dims, out_channels=out_ch, dtype=self.dtype, device=device, operations=operations)
+                        else Upsample(ch, conv_resample, dims=dims, out_channels=out_ch, dtype=self.dtype, operations=operations)
                     )
                     ds //= 2
                 self.output_blocks.append(TimestepEmbedSequential(*layers))
                 self._feature_size += ch
 
-        self.out = nn.Sequential(
-            operations.GroupNorm(32, ch, dtype=self.dtype, device=device),
+        self.out = mindspore.nn.SequentialCell([
+            operations.GroupNorm(32, ch, dtype=self.dtype),
             nn.SiLU(),
-            operations.conv_nd(dims, model_channels, out_channels, 3, padding=1, dtype=self.dtype, device=device),
-        )
+            operations.conv_nd(dims, model_channels, out_channels, 3, padding=1, dtype=self.dtype),
+        ])
         if self.predict_codebook_ids:
-            self.id_predictor = nn.Sequential(
-            operations.GroupNorm(32, ch, dtype=self.dtype, device=device),
-            operations.conv_nd(dims, model_channels, n_embed, 1, dtype=self.dtype, device=device),
+            self.id_predictor = mindspore.nn.SequentialCell([
+            operations.GroupNorm(32, ch, dtype=self.dtype),
+            operations.conv_nd(dims, model_channels, n_embed, 1, dtype=self.dtype),
             #nn.LogSoftmax(dim=1)  # change to cross_entropy and produce non-normalized logits
-        )
+        ])
 
-    def forward(self, x, timesteps=None, context=None, y=None, control=None, transformer_options={}, **kwargs):
+    def construct(self, x, timesteps=None, context=None, y=None, control=None, transformer_options={}, **kwargs):
         return comfy.patcher_extension.WrapperExecutor.new_class_executor(
             self._forward,
             self,
@@ -899,7 +887,7 @@ class UNetModel(nn.Module):
                 for p in patch:
                     h, hsp = p(h, hsp, transformer_options)
 
-            h = th.cat([h, hsp], dim=1)
+            h = mint.cat([h, hsp], dim=1)
             del hsp
             if len(hs) > 0:
                 output_shape = hs[-1].shape

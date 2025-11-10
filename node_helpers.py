@@ -1,5 +1,6 @@
 import hashlib
-import torch
+import mindspore
+from mindspore import mint
 
 from comfy.cli_args import args
 
@@ -43,18 +44,18 @@ def hasher():
     }
     return hashfuncs[args.default_hashing_function]
 
-def string_to_torch_dtype(string):
+def string_to_mindspore_dtype(string):
     if string == "fp32":
-        return torch.float32
+        return mindspore.float32
     if string == "fp16":
-        return torch.float16
+        return mindspore.float16
     if string == "bf16":
-        return torch.bfloat16
+        return mindspore.bfloat16
 
 def image_alpha_fix(destination, source):
     if destination.shape[-1] < source.shape[-1]:
         source = source[...,:destination.shape[-1]]
     elif destination.shape[-1] > source.shape[-1]:
-        destination = torch.nn.functional.pad(destination, (0, 1))
+        destination = mint.functional.pad(destination, (0, 1))
         destination[..., -1] = 1.0
     return destination, source

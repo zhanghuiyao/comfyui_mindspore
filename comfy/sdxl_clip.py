@@ -1,16 +1,17 @@
 from comfy import sd1_clip
-import torch
 import os
+import mindspore
+from mindspore import mint
 
 class SDXLClipG(sd1_clip.SDClipModel):
-    def __init__(self, device="cpu", max_length=77, freeze=True, layer="penultimate", layer_idx=None, dtype=None, model_options={}):
+    def __init__(self, device=None, max_length=77, freeze=True, layer="penultimate", layer_idx=None, dtype=None, model_options={}):
         if layer == "penultimate":
             layer="hidden"
             layer_idx=-2
 
         textmodel_json_config = os.path.join(os.path.dirname(os.path.realpath(__file__)), "clip_config_bigg.json")
         model_options = {**model_options, "model_name": "clip_g"}
-        super().__init__(device=device, freeze=freeze, layer=layer, layer_idx=layer_idx, textmodel_json_config=textmodel_json_config, dtype=dtype,
+        super().__init__(device=None, freeze=freeze, layer=layer, layer_idx=layer_idx, textmodel_json_config=textmodel_json_config, dtype=dtype,
                          special_tokens={"start": 49406, "end": 49407, "pad": 0}, layer_norm_hidden_state=False, return_projected_pooled=True, model_options=model_options)
 
     def load_sd(self, sd):
@@ -38,11 +39,11 @@ class SDXLTokenizer:
     def state_dict(self):
         return {}
 
-class SDXLClipModel(torch.nn.Module):
-    def __init__(self, device="cpu", dtype=None, model_options={}):
+class SDXLClipModel(mindspore.nn.Cell):
+    def __init__(self, device=None, dtype=None, model_options={}):
         super().__init__()
-        self.clip_l = sd1_clip.SDClipModel(layer="hidden", layer_idx=-2, device=device, dtype=dtype, layer_norm_hidden_state=False, model_options=model_options)
-        self.clip_g = SDXLClipG(device=device, dtype=dtype, model_options=model_options)
+        self.clip_l = sd1_clip.SDClipModel(layer="hidden", layer_idx=-2, device=None, dtype=dtype, layer_norm_hidden_state=False, model_options=model_options)
+        self.clip_g = SDXLClipG(device=None, dtype=dtype, model_options=model_options)
         self.dtypes = set([dtype])
 
     def set_clip_options(self, options):
@@ -59,7 +60,7 @@ class SDXLClipModel(torch.nn.Module):
         g_out, g_pooled = self.clip_g.encode_token_weights(token_weight_pairs_g)
         l_out, l_pooled = self.clip_l.encode_token_weights(token_weight_pairs_l)
         cut_to = min(l_out.shape[1], g_out.shape[1])
-        return torch.cat([l_out[:,:cut_to], g_out[:,:cut_to]], dim=-1), g_pooled
+        return mint.cat([l_out[:,:cut_to], g_out[:,:cut_to]], dim=-1), g_pooled
 
     def load_sd(self, sd):
         if "text_model.encoder.layers.30.mlp.fc1.weight" in sd:
@@ -68,8 +69,8 @@ class SDXLClipModel(torch.nn.Module):
             return self.clip_l.load_sd(sd)
 
 class SDXLRefinerClipModel(sd1_clip.SD1ClipModel):
-    def __init__(self, device="cpu", dtype=None, model_options={}):
-        super().__init__(device=device, dtype=dtype, clip_name="g", clip_model=SDXLClipG, model_options=model_options)
+    def __init__(self, device=None, dtype=None, model_options={}):
+        super().__init__(device=None, dtype=dtype, clip_name="g", clip_model=SDXLClipG, model_options=model_options)
 
 
 class StableCascadeClipGTokenizer(sd1_clip.SDTokenizer):
@@ -81,15 +82,15 @@ class StableCascadeTokenizer(sd1_clip.SD1Tokenizer):
         super().__init__(embedding_directory=embedding_directory, tokenizer_data=tokenizer_data, clip_name="g", tokenizer=StableCascadeClipGTokenizer)
 
 class StableCascadeClipG(sd1_clip.SDClipModel):
-    def __init__(self, device="cpu", max_length=77, freeze=True, layer="hidden", layer_idx=-1, dtype=None, model_options={}):
+    def __init__(self, device=None, max_length=77, freeze=True, layer="hidden", layer_idx=-1, dtype=None, model_options={}):
         textmodel_json_config = os.path.join(os.path.dirname(os.path.realpath(__file__)), "clip_config_bigg.json")
         model_options = {**model_options, "model_name": "clip_g"}
-        super().__init__(device=device, freeze=freeze, layer=layer, layer_idx=layer_idx, textmodel_json_config=textmodel_json_config, dtype=dtype,
+        super().__init__(device=None, freeze=freeze, layer=layer, layer_idx=layer_idx, textmodel_json_config=textmodel_json_config, dtype=dtype,
                          special_tokens={"start": 49406, "end": 49407, "pad": 49407}, layer_norm_hidden_state=False, enable_attention_masks=True, return_projected_pooled=True, model_options=model_options)
 
     def load_sd(self, sd):
         return super().load_sd(sd)
 
 class StableCascadeClipModel(sd1_clip.SD1ClipModel):
-    def __init__(self, device="cpu", dtype=None, model_options={}):
-        super().__init__(device=device, dtype=dtype, clip_name="g", clip_model=StableCascadeClipG, model_options=model_options)
+    def __init__(self, device=None, dtype=None, model_options={}):
+        super().__init__(device=None, dtype=dtype, clip_name="g", clip_model=StableCascadeClipG, model_options=model_options)

@@ -2,10 +2,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Callable
 import enum
 import math
-import torch
 import numpy as np
 import itertools
 import logging
+
+import mindspore
+from mindspore import mint
 
 if TYPE_CHECKING:
     from comfy.model_patcher import ModelPatcher, PatcherInjection
@@ -431,7 +433,7 @@ class HookKeyframe:
         self.start_t = 999999999.9
         self.guarantee_steps = guarantee_steps
 
-    def get_effective_guarantee_steps(self, max_sigma: torch.Tensor):
+    def get_effective_guarantee_steps(self, max_sigma: mindspore.Tensor):
         '''If keyframe starts before current sampling range (max_sigma), treat as 0.'''
         if self.start_t > max_sigma:
             return 0
@@ -502,12 +504,12 @@ class HookKeyframeGroup:
         for keyframe in self.keyframes:
             keyframe.start_t = model.model_sampling.percent_to_sigma(keyframe.start_percent)
 
-    def prepare_current_keyframe(self, curr_t: float, transformer_options: dict[str, torch.Tensor]) -> bool:
+    def prepare_current_keyframe(self, curr_t: float, transformer_options: dict[str, mindspore.Tensor]) -> bool:
         if self.is_empty():
             return False
         if curr_t == self._curr_t:
             return False
-        max_sigma = torch.max(transformer_options["sample_sigmas"])
+        max_sigma = mint.max(transformer_options["sample_sigmas"])
         prev_index = self._current_index
         prev_strength = self._current_strength
         # if met guaranteed steps, look for next keyframe in case need to switch
@@ -548,15 +550,15 @@ class InterpolationMethod:
     def get_weights(cls, num_from: float, num_to: float, length: int, method: str, reverse=False):
         diff = num_to - num_from
         if method == cls.LINEAR:
-            weights = torch.linspace(num_from, num_to, length)
+            weights = mint.linspace(num_from, num_to, length)
         elif method == cls.EASE_IN:
-            index = torch.linspace(0, 1, length)
+            index = mint.linspace(0, 1, length)
             weights = diff * np.power(index, 2) + num_from
         elif method == cls.EASE_OUT:
-            index = torch.linspace(0, 1, length)
+            index = mint.linspace(0, 1, length)
             weights = diff * (1 - np.power(1 - index, 2)) + num_from
         elif method == cls.EASE_IN_OUT:
-            index = torch.linspace(0, 1, length)
+            index = mint.linspace(0, 1, length)
             weights = diff * ((1 - np.cos(index * np.pi)) / 2) + num_from
         else:
             raise ValueError(f"Unrecognized interpolation method '{method}'.")
@@ -598,7 +600,7 @@ def create_transformer_options_from_hooks(model: ModelPatcher, hooks: HookGroup,
         hook.on_apply_hooks(model, transformer_options)
     return transformer_options
 
-def create_hook_lora(lora: dict[str, torch.Tensor], strength_model: float, strength_clip: float):
+def create_hook_lora(lora: dict[str, mindspore.Tensor], strength_model: float, strength_clip: float):
     hook_group = HookGroup()
     hook = WeightHook(strength_model=strength_model, strength_clip=strength_clip)
     hook_group.add(hook)
@@ -627,7 +629,7 @@ def create_hook_model_as_lora(weights_model, weights_clip, strength_model: float
 def get_patch_weights_from_model(model: ModelPatcher, discard_model_sampling=True):
     if model is None:
         return None
-    patches_model: dict[str, torch.Tensor] = model.model.state_dict()
+    patches_model: dict[str, mindspore.Tensor] = model.model.state_dict()
     if discard_model_sampling:
         # do not include ANY model_sampling components of the model that should act as a patch
         for key in list(patches_model.keys()):
@@ -636,7 +638,7 @@ def get_patch_weights_from_model(model: ModelPatcher, discard_model_sampling=Tru
     return patches_model
 
 # NOTE: this function shows how to register weight hooks directly on the ModelPatchers
-def load_hook_lora_for_models(model: ModelPatcher, clip: CLIP, lora: dict[str, torch.Tensor],
+def load_hook_lora_for_models(model: ModelPatcher, clip: CLIP, lora: dict[str, mindspore.Tensor],
                               strength_model: float, strength_clip: float):
     key_map = {}
     if model is not None:
@@ -715,7 +717,7 @@ def set_timesteps_for_conditioning(cond, timestep_range: tuple[float,float]):
     return conditioning_set_values(cond, {"start_percent": timestep_range[0],
                                           "end_percent": timestep_range[1]})
 
-def set_mask_for_conditioning(cond, mask: torch.Tensor, set_cond_area: str, strength: float):
+def set_mask_for_conditioning(cond, mask: mindspore.Tensor, set_cond_area: str, strength: float):
     if mask is None:
         return cond
     set_area_to_bounds = False
@@ -740,7 +742,7 @@ def combine_with_new_conds(conds: list, new_conds: list):
     return combined_conds
 
 def set_conds_props(conds: list, strength: float, set_cond_area: str,
-                   mask: torch.Tensor=None, hooks: HookGroup=None, timesteps_range: tuple[float,float]=None, append_hooks=True):
+                   mask: mindspore.Tensor=None, hooks: HookGroup=None, timesteps_range: tuple[float,float]=None, append_hooks=True):
     final_conds = []
     cache = {}
     for c in conds:
@@ -755,7 +757,7 @@ def set_conds_props(conds: list, strength: float, set_cond_area: str,
     return final_conds
 
 def set_conds_props_and_combine(conds: list, new_conds: list, strength: float=1.0, set_cond_area: str="default",
-                               mask: torch.Tensor=None, hooks: HookGroup=None, timesteps_range: tuple[float,float]=None, append_hooks=True):
+                               mask: mindspore.Tensor=None, hooks: HookGroup=None, timesteps_range: tuple[float,float]=None, append_hooks=True):
     combined_conds = []
     cache = {}
     for c, masked_c in zip(conds, new_conds):

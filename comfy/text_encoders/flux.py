@@ -1,10 +1,14 @@
+import os
+
+import mindspore
+from mindspore import mint
+
 from comfy import sd1_clip
 import comfy.text_encoders.t5
 import comfy.text_encoders.sd3_clip
 import comfy.model_management
 from transformers import T5TokenizerFast
-import torch
-import os
+
 
 class T5XXLTokenizer(sd1_clip.SDTokenizer):
     def __init__(self, embedding_directory=None, tokenizer_data={}):
@@ -30,12 +34,12 @@ class FluxTokenizer:
         return {}
 
 
-class FluxClipModel(torch.nn.Module):
-    def __init__(self, dtype_t5=None, device="cpu", dtype=None, model_options={}):
+class FluxClipModel(mindspore.nn.Module):
+    def __init__(self, dtype_t5=None, dtype=None, model_options={}):
         super().__init__()
-        dtype_t5 = comfy.model_management.pick_weight_dtype(dtype_t5, dtype, device)
-        self.clip_l = sd1_clip.SDClipModel(device=device, dtype=dtype, return_projected_pooled=False, model_options=model_options)
-        self.t5xxl = comfy.text_encoders.sd3_clip.T5XXLModel(device=device, dtype=dtype_t5, model_options=model_options)
+        dtype_t5 = comfy.model_management.pick_weight_dtype(dtype_t5, dtype)
+        self.clip_l = sd1_clip.SDClipModel(dtype=dtype, return_projected_pooled=False, model_options=model_options)
+        self.t5xxl = comfy.text_encoders.sd3_clip.T5XXLModel(dtype=dtype_t5, model_options=model_options)
         self.dtypes = set([dtype, dtype_t5])
 
     def set_clip_options(self, options):
@@ -62,9 +66,10 @@ class FluxClipModel(torch.nn.Module):
 
 def flux_clip(dtype_t5=None, t5xxl_scaled_fp8=None):
     class FluxClipModel_(FluxClipModel):
-        def __init__(self, device="cpu", dtype=None, model_options={}):
+        def __init__(self, dtype=None, model_options={}):
             if t5xxl_scaled_fp8 is not None and "t5xxl_scaled_fp8" not in model_options:
-                model_options = model_options.copy()
-                model_options["t5xxl_scaled_fp8"] = t5xxl_scaled_fp8
-            super().__init__(dtype_t5=dtype_t5, device=device, dtype=dtype, model_options=model_options)
+                # model_options = model_options.copy()
+                # model_options["t5xxl_scaled_fp8"] = t5xxl_scaled_fp8
+                raise NotImplementedError
+            super().__init__(dtype_t5=dtype_t5, dtype=dtype, model_options=model_options)
     return FluxClipModel_
