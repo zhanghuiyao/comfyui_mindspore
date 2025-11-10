@@ -1,4 +1,6 @@
-import torch
+import mindspore
+from mindspore import mint
+
 from PIL import Image
 from comfy.cli_args import args, LatentPreviewMethod
 from comfy.taesd.taesd import TAESD
@@ -14,8 +16,8 @@ def preview_to_image(latent_image):
                             .mul(0xFF)  # to 0..255
                             )
         if comfy.model_management.directml_enabled:
-                latents_ubyte = latents_ubyte.to(dtype=torch.uint8)
-        latents_ubyte = latents_ubyte.to(device="cpu", dtype=torch.uint8, non_blocking=comfy.model_management.device_supports_non_blocking(latent_image.device))
+                latents_ubyte = latents_ubyte.to(dtype=mindspore.uint8)
+        latents_ubyte = latents_ubyte.to(dtype=mindspore.uint8, non_blocking=comfy.model_management.device_supports_non_blocking(None))
 
         return Image.fromarray(latents_ubyte.numpy())
 
@@ -38,22 +40,22 @@ class TAESDPreviewerImpl(LatentPreviewer):
 
 class Latent2RGBPreviewer(LatentPreviewer):
     def __init__(self, latent_rgb_factors, latent_rgb_factors_bias=None):
-        self.latent_rgb_factors = torch.tensor(latent_rgb_factors, device="cpu").transpose(0, 1)
+        self.latent_rgb_factors = mindspore.tensor(latent_rgb_factors).transpose(0, 1)
         self.latent_rgb_factors_bias = None
         if latent_rgb_factors_bias is not None:
-            self.latent_rgb_factors_bias = torch.tensor(latent_rgb_factors_bias, device="cpu")
+            self.latent_rgb_factors_bias = mindspore.tensor(latent_rgb_factors_bias)
 
     def decode_latent_to_preview(self, x0):
-        self.latent_rgb_factors = self.latent_rgb_factors.to(dtype=x0.dtype, device=x0.device)
+        self.latent_rgb_factors = self.latent_rgb_factors.to(dtype=x0.dtype)
         if self.latent_rgb_factors_bias is not None:
-            self.latent_rgb_factors_bias = self.latent_rgb_factors_bias.to(dtype=x0.dtype, device=x0.device)
+            self.latent_rgb_factors_bias = self.latent_rgb_factors_bias.to(dtype=x0.dtype)
 
         if x0.ndim == 5:
             x0 = x0[0, :, 0]
         else:
             x0 = x0[0]
 
-        latent_image = torch.nn.functional.linear(x0.movedim(0, -1), self.latent_rgb_factors, bias=self.latent_rgb_factors_bias)
+        latent_image = mint.functional.linear(x0.movedim(0, -1), self.latent_rgb_factors, bias=self.latent_rgb_factors_bias)
         # latent_image = x0[0].permute(1, 2, 0) @ self.latent_rgb_factors
 
         return preview_to_image(latent_image)
@@ -78,7 +80,7 @@ def get_previewer(device, latent_format):
 
         if method == LatentPreviewMethod.TAESD:
             if taesd_decoder_path:
-                taesd = TAESD(None, taesd_decoder_path, latent_channels=latent_format.latent_channels).to(device)
+                taesd = TAESD(None, taesd_decoder_path, latent_channels=latent_format.latent_channels)
                 previewer = TAESDPreviewerImpl(taesd)
             else:
                 logging.warning("Warning: TAESD previews enabled, but could not find models/vae_approx/{}".format(latent_format.taesd_decoder_name))
@@ -93,7 +95,7 @@ def prepare_callback(model, steps, x0_output_dict=None):
     if preview_format not in ["JPEG", "PNG"]:
         preview_format = "JPEG"
 
-    previewer = get_previewer(model.load_device, model.model.latent_format)
+    previewer = get_previewer(None, model.model.latent_format)
 
     pbar = comfy.utils.ProgressBar(steps)
     def callback(step, x0, x, total_steps):

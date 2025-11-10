@@ -32,7 +32,7 @@ from comfy_api.internal import register_versions, ComfyAPIWithVersion
 from comfy_api.version_list import supported_versions
 from comfy_api.latest import io, ComfyExtension
 
-import comfy.clip_vision
+# import comfy.clip_vision
 
 import comfy.model_management
 from comfy.cli_args import args
@@ -40,7 +40,7 @@ from comfy.cli_args import args
 import importlib
 
 import folder_paths
-import latent_preview
+# import latent_preview
 import node_helpers
 
 def before_node_execution():

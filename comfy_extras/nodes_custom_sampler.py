@@ -4,9 +4,9 @@ from mindspore import mint
 
 import comfy.samplers
 import comfy.sample
-from comfy.k_diffusion import sampling as k_diffusion_sampling
-from comfy.k_diffusion import sa_solver
-from comfy.comfy_types import IO, ComfyNodeABC, InputTypeDict
+# from comfy.k_diffusion import sampling as k_diffusion_sampling
+# from comfy.k_diffusion import sa_solver
+# from comfy.comfy_types import IO, ComfyNodeABC, InputTypeDict
 import latent_preview
 import comfy.utils
 import node_helpers
