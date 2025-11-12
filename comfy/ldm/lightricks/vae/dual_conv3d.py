@@ -1,13 +1,15 @@
 import math
 from typing import Tuple, Union
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+import mindspore
+import mindspore.nn as nn
+from mindspore import mint
+import mindspore.mint.nn.functional as F
+from mindspore.common.initializer import HeUniform, Uniform, initializer
 from einops import rearrange
 
 
-class DualConv3d(nn.Module):
+class DualConv3d(nn.Cell):
     def __init__(
         self,
         in_channels,
@@ -49,8 +51,8 @@ class DualConv3d(nn.Module):
         )
 
         # Define parameters for the first convolution
-        self.weight1 = nn.Parameter(
-            torch.Tensor(
+        self.weight1 = mindspore.Parameter(
+            mindspore.Tensor(
                 intermediate_channels,
                 in_channels // groups,
                 1,
@@ -62,13 +64,13 @@ class DualConv3d(nn.Module):
         self.padding1 = (0, padding[1], padding[2])
         self.dilation1 = (1, dilation[1], dilation[2])
         if bias:
-            self.bias1 = nn.Parameter(torch.Tensor(intermediate_channels))
+            self.bias1 = mindspore.Parameter(mindspore.Tensor(intermediate_channels))
         else:
             self.register_parameter("bias1", None)
 
         # Define parameters for the second convolution
-        self.weight2 = nn.Parameter(
-            torch.Tensor(
+        self.weight2 = mindspore.Parameter(
+            mindspore.Tensor(
                 out_channels, intermediate_channels // groups, kernel_size[0], 1, 1
             )
         )
@@ -76,7 +78,7 @@ class DualConv3d(nn.Module):
         self.padding2 = (padding[0], 0, 0)
         self.dilation2 = (dilation[0], 1, 1)
         if bias:
-            self.bias2 = nn.Parameter(torch.Tensor(out_channels))
+            self.bias2 = mindspore.Parameter(mindspore.Tensor(out_channels))
         else:
             self.register_parameter("bias2", None)
 
@@ -84,17 +86,17 @@ class DualConv3d(nn.Module):
         self.reset_parameters()
 
     def reset_parameters(self):
-        nn.init.kaiming_uniform_(self.weight1, a=math.sqrt(5))
-        nn.init.kaiming_uniform_(self.weight2, a=math.sqrt(5))
+        self.weight1.set_data(initializer(HeUniform(negative_slope=math.sqrt(5)), self.weight1.shape, self.weight1.dtype))
+        self.weight2.set_data(initializer(HeUniform(negative_slope=math.sqrt(5)), self.weight2.shape, self.weight2.dtype))
         if self.bias:
-            fan_in1, _ = nn.init._calculate_fan_in_and_fan_out(self.weight1)
+            fan_in1 = self.weight1.shape[1]
             bound1 = 1 / math.sqrt(fan_in1)
-            nn.init.uniform_(self.bias1, -bound1, bound1)
-            fan_in2, _ = nn.init._calculate_fan_in_and_fan_out(self.weight2)
+            self.bias1.set_data(initializer(Uniform(bound1), self.bias1.shape, self.bias1.dtype))
+            fan_in2 = self.weight2.shape[1]
             bound2 = 1 / math.sqrt(fan_in2)
-            nn.init.uniform_(self.bias2, -bound2, bound2)
+            self.bias2.set_data(initializer(Uniform(bound2), self.bias2.shape, self.bias2.dtype))
 
-    def forward(self, x, use_conv3d=False, skip_time_conv=False):
+    def construct(self, x, use_conv3d=False, skip_time_conv=False):
         if use_conv3d:
             return self.forward_with_3d(x=x, skip_time_conv=skip_time_conv)
         else:
@@ -205,13 +207,13 @@ def test_dual_conv3d_consistency():
     )
 
     # Example input tensor
-    test_input = torch.randn(1, 3, 10, 10, 10)
+    test_input = mint.randn(1, 3, 10, 10, 10)
 
     # Perform forward passes with both 3D and 2D settings
     output_conv3d = dual_conv3d(test_input, use_conv3d=True)
     output_2d = dual_conv3d(test_input, use_conv3d=False)
 
     # Assert that the outputs from both methods are sufficiently close
-    assert torch.allclose(
+    assert mint.allclose(
         output_conv3d, output_2d, atol=1e-6
     ), "Outputs are not consistent between 3D and 2D convolutions."

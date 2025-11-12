@@ -2,7 +2,8 @@ import comfy.sd
 import comfy.model_sampling
 import comfy.latent_formats
 import nodes
-import torch
+import mindspore
+from mindspore import mint
 import node_helpers
 
 
@@ -28,7 +29,7 @@ class ModelSamplingDiscreteDistilled(comfy.model_sampling.ModelSamplingDiscrete)
 
         self.skip_steps = self.num_timesteps // self.original_timesteps
 
-        sigmas_valid = torch.zeros((self.original_timesteps), dtype=torch.float32)
+        sigmas_valid = mint.zeros((self.original_timesteps), dtype=mindspore.float32)
         for x in range(self.original_timesteps):
             sigmas_valid[self.original_timesteps - 1 - x] = self.sigmas[self.num_timesteps - 1 - x * self.skip_steps]
 
@@ -40,7 +41,7 @@ class ModelSamplingDiscreteDistilled(comfy.model_sampling.ModelSamplingDiscrete)
         return (dists.abs().argmin(dim=0).view(sigma.shape) * self.skip_steps + (self.skip_steps - 1)).to(sigma.device)
 
     def sigma(self, timestep):
-        t = torch.clamp(((timestep.float().to(self.log_sigmas.device) - (self.skip_steps - 1)) / self.skip_steps).float(), min=0, max=(len(self.sigmas) - 1))
+        t = mint.clamp(((timestep.float().to(self.log_sigmas.device) - (self.skip_steps - 1)) / self.skip_steps).float(), min=0, max=(len(self.sigmas) - 1))
         low_idx = t.floor().long()
         high_idx = t.ceil().long()
         w = t.frac()
@@ -286,8 +287,8 @@ class RescaleCFG:
 
             #rescalecfg
             x_cfg = uncond + cond_scale * (cond - uncond)
-            ro_pos = torch.std(cond, dim=(1,2,3), keepdim=True)
-            ro_cfg = torch.std(x_cfg, dim=(1,2,3), keepdim=True)
+            ro_pos = mint.std(cond, dim=(1,2,3), keepdim=True)
+            ro_cfg = mint.std(x_cfg, dim=(1,2,3), keepdim=True)
 
             x_rescaled = x_cfg * (ro_pos / ro_cfg)
             x_final = multiplier * x_rescaled + (1.0 - multiplier) * x_cfg
@@ -312,7 +313,7 @@ class ModelComputeDtype:
 
     def patch(self, model, dtype):
         m = model.clone()
-        m.set_model_compute_dtype(node_helpers.string_to_torch_dtype(dtype))
+        m.set_model_compute_dtype(node_helpers.string_to_mindspore_dtype(dtype))
         return (m, )
 
 

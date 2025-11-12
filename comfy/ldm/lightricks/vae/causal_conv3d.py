@@ -1,12 +1,13 @@
 from typing import Tuple, Union
 
-import torch
-import torch.nn as nn
+import mindspore
+import mindspore.nn as nn
+from mindspore import mint
 import comfy.ops
 ops = comfy.ops.disable_weight_init
 
 
-class CausalConv3d(nn.Module):
+class CausalConv3d(nn.Cell):
     def __init__(
         self,
         in_channels,
@@ -43,12 +44,12 @@ class CausalConv3d(nn.Module):
             groups=groups,
         )
 
-    def forward(self, x, causal: bool = True):
+    def construct(self, x, causal: bool = True):
         if causal:
             first_frame_pad = x[:, :, :1, :, :].repeat(
                 (1, 1, self.time_kernel_size - 1, 1, 1)
             )
-            x = torch.concatenate((first_frame_pad, x), dim=2)
+            x = mint.concatenate((first_frame_pad, x), dim=2)
         else:
             first_frame_pad = x[:, :, :1, :, :].repeat(
                 (1, 1, (self.time_kernel_size - 1) // 2, 1, 1)
@@ -56,7 +57,7 @@ class CausalConv3d(nn.Module):
             last_frame_pad = x[:, :, -1:, :, :].repeat(
                 (1, 1, (self.time_kernel_size - 1) // 2, 1, 1)
             )
-            x = torch.concatenate((first_frame_pad, x, last_frame_pad), dim=2)
+            x = mint.concatenate((first_frame_pad, x, last_frame_pad), dim=2)
         x = self.conv(x)
         return x
 

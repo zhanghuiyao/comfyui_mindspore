@@ -1,4 +1,5 @@
-import torch
+import mindspore
+from mindspore import mint
 import math
 
 from .model import QwenImageTransformer2DModel
@@ -17,18 +18,18 @@ class QwenImageControlNetModel(QwenImageTransformer2DModel):
         self.main_model_double = 60
 
         # controlnet_blocks
-        self.controlnet_blocks = torch.nn.ModuleList([])
+        self.controlnet_blocks = ms.nn.CellList([])
         for _ in range(len(self.transformer_blocks)):
-            self.controlnet_blocks.append(operations.Linear(self.inner_dim, self.inner_dim, device=device, dtype=dtype))
-        self.controlnet_x_embedder = operations.Linear(self.in_channels + extra_condition_channels, self.inner_dim, device=device, dtype=dtype)
+            self.controlnet_blocks.append(operations.Linear(self.inner_dim, self.inner_dim, dtype=dtype))
+        self.controlnet_x_embedder = operations.Linear(self.in_channels + extra_condition_channels, self.inner_dim, dtype=dtype)
 
-    def forward(
+    def construct(
         self,
         x,
         timesteps,
         context,
         attention_mask=None,
-        guidance: torch.Tensor = None,
+        guidance: ms.Tensor = None,
         ref_latents=None,
         hint=None,
         transformer_options={},
@@ -42,8 +43,8 @@ class QwenImageControlNetModel(QwenImageTransformer2DModel):
         hint, _, _ = self.process_img(hint)
 
         txt_start = round(max(((x.shape[-1] + (self.patch_size // 2)) // self.patch_size) // 2, ((x.shape[-2] + (self.patch_size // 2)) // self.patch_size) // 2))
-        txt_ids = torch.arange(txt_start, txt_start + context.shape[1], device=x.device).reshape(1, -1, 1).repeat(x.shape[0], 1, 3)
-        ids = torch.cat((txt_ids, img_ids), dim=1)
+        txt_ids = mint.arange(txt_start, txt_start + context.shape[1]).reshape(1, -1, 1).repeat(x.shape[0], 1, 3)
+        ids = mint.cat((txt_ids, img_ids), dim=1)
         image_rotary_emb = self.pe_embedder(ids).to(x.dtype).contiguous()
         del ids, txt_ids, img_ids
 

@@ -1,9 +1,9 @@
 from abc import ABC, abstractmethod
 from typing import Tuple
 
-import torch
+import mindspore
+from mindspore import Tensor, mint
 from einops import rearrange
-from torch import Tensor
 
 
 def latent_to_pixel_coords(
@@ -23,7 +23,7 @@ def latent_to_pixel_coords(
     """
     pixel_coords = (
         latent_coords
-        * torch.tensor(scale_factors, device=latent_coords.device)[None, :, None]
+        * mindspore.tensor(scale_factors)[None, :, None]
     )
     if causal_fix:
         # Fix temporal scale for first frame to 1 due to causality
@@ -58,20 +58,20 @@ class Patchifier(ABC):
         return self._patch_size
 
     def get_latent_coords(
-        self, latent_num_frames, latent_height, latent_width, batch_size, device
+        self, latent_num_frames, latent_height, latent_width, batch_size, device=None
     ):
         """
         Return a tensor of shape [batch_size, 3, num_patches] containing the
             top-left corner latent coordinates of each latent patch.
         The tensor is repeated for each batch element.
         """
-        latent_sample_coords = torch.meshgrid(
-            torch.arange(0, latent_num_frames, self._patch_size[0], device=device),
-            torch.arange(0, latent_height, self._patch_size[1], device=device),
-            torch.arange(0, latent_width, self._patch_size[2], device=device),
+        latent_sample_coords = mint.meshgrid(
+            mint.arange(0, latent_num_frames, self._patch_size[0]),
+            mint.arange(0, latent_height, self._patch_size[1]),
+            mint.arange(0, latent_width, self._patch_size[2]),
             indexing="ij",
         )
-        latent_sample_coords = torch.stack(latent_sample_coords, dim=0)
+        latent_sample_coords = mint.stack(latent_sample_coords, dim=0)
         latent_coords = latent_sample_coords.unsqueeze(0).repeat(batch_size, 1, 1, 1, 1)
         latent_coords = rearrange(
             latent_coords, "b c f h w -> b c (f h w)", b=batch_size
@@ -85,7 +85,7 @@ class SymmetricPatchifier(Patchifier):
         latents: Tensor,
     ) -> Tuple[Tensor, Tensor]:
         b, _, f, h, w = latents.shape
-        latent_coords = self.get_latent_coords(f, h, w, b, latents.device)
+        latent_coords = self.get_latent_coords(f, h, w, b)
         latents = rearrange(
             latents,
             "b c (f p1) (h p2) (w p3) -> b (f h w) (c p1 p2 p3)",
