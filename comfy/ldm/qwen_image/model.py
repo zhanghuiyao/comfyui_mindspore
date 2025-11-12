@@ -1,7 +1,8 @@
 # https://github.com/QwenLM/Qwen-Image (Apache 2.0)
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+import mindspore
+import mindspore.nn as nn
+from mindspore import mint, ops
+import mindspore.mint.nn.functional as F
 from typing import Optional, Tuple
 from einops import repeat
 
@@ -12,19 +13,19 @@ import comfy.ldm.common_dit
 import comfy.patcher_extension
 from comfy.ldm.flux.math import apply_rope1
 
-class GELU(nn.Module):
+class GELU(nn.Cell):
     def __init__(self, dim_in: int, dim_out: int, approximate: str = "none", bias: bool = True, dtype=None, device=None, operations=None):
         super().__init__()
-        self.proj = operations.Linear(dim_in, dim_out, bias=bias, dtype=dtype, device=device)
+        self.proj = operations.Linear(dim_in, dim_out, bias=bias, dtype=dtype)
         self.approximate = approximate
 
-    def forward(self, hidden_states):
+    def construct(self, hidden_states):
         hidden_states = self.proj(hidden_states)
         hidden_states = F.gelu(hidden_states, approximate=self.approximate)
         return hidden_states
 
 
-class FeedForward(nn.Module):
+class FeedForward(nn.Cell):
     def __init__(
         self,
         dim: int,
@@ -40,12 +41,12 @@ class FeedForward(nn.Module):
             inner_dim = int(dim * mult)
         dim_out = dim_out if dim_out is not None else dim
 
-        self.net = nn.ModuleList([])
+        self.net = nn.CellList([])
         self.net.append(GELU(dim, inner_dim, approximate="tanh", bias=bias, dtype=dtype, device=device, operations=operations))
-        self.net.append(nn.Dropout(dropout))
-        self.net.append(operations.Linear(inner_dim, dim_out, bias=bias, dtype=dtype, device=device))
+        self.net.append(mint.nn.Dropout(dropout))
+        self.net.append(operations.Linear(inner_dim, dim_out, bias=bias, dtype=dtype))
 
-    def forward(self, hidden_states: torch.Tensor, *args, **kwargs) -> torch.Tensor:
+    def construct(self, hidden_states: mindspore.Tensor, *args, **kwargs) -> mindspore.Tensor:
         for module in self.net:
             hidden_states = module(hidden_states)
         return hidden_states
@@ -60,7 +61,7 @@ def apply_rotary_emb(x, freqs_cis):
     return t_out.reshape(*x.shape)
 
 
-class QwenTimestepProjEmbeddings(nn.Module):
+class QwenTimestepProjEmbeddings(nn.Cell):
     def __init__(self, embedding_dim, pooled_projection_dim, dtype=None, device=None, operations=None):
         super().__init__()
         self.time_proj = Timesteps(num_channels=256, flip_sin_to_cos=True, downscale_freq_shift=0, scale=1000)
@@ -72,13 +73,13 @@ class QwenTimestepProjEmbeddings(nn.Module):
             operations=operations
         )
 
-    def forward(self, timestep, hidden_states):
+    def construct(self, timestep, hidden_states):
         timesteps_proj = self.time_proj(timestep)
         timesteps_emb = self.timestep_embedder(timesteps_proj.to(dtype=hidden_states.dtype))
         return timesteps_emb
 
 
-class Attention(nn.Module):
+class Attention(nn.Cell):
     def __init__(
         self,
         query_dim: int,
@@ -104,37 +105,37 @@ class Attention(nn.Module):
         self.dropout = dropout
 
         # Q/K normalization
-        self.norm_q = operations.RMSNorm(dim_head, eps=eps, elementwise_affine=True, dtype=dtype, device=device)
-        self.norm_k = operations.RMSNorm(dim_head, eps=eps, elementwise_affine=True, dtype=dtype, device=device)
-        self.norm_added_q = operations.RMSNorm(dim_head, eps=eps, dtype=dtype, device=device)
-        self.norm_added_k = operations.RMSNorm(dim_head, eps=eps, dtype=dtype, device=device)
+        self.norm_q = operations.RMSNorm(dim_head, eps=eps, elementwise_affine=True, dtype=dtype)
+        self.norm_k = operations.RMSNorm(dim_head, eps=eps, elementwise_affine=True, dtype=dtype)
+        self.norm_added_q = operations.RMSNorm(dim_head, eps=eps, dtype=dtype)
+        self.norm_added_k = operations.RMSNorm(dim_head, eps=eps, dtype=dtype)
 
         # Image stream projections
-        self.to_q = operations.Linear(query_dim, self.inner_dim, bias=bias, dtype=dtype, device=device)
-        self.to_k = operations.Linear(query_dim, self.inner_kv_dim, bias=bias, dtype=dtype, device=device)
-        self.to_v = operations.Linear(query_dim, self.inner_kv_dim, bias=bias, dtype=dtype, device=device)
+        self.to_q = operations.Linear(query_dim, self.inner_dim, bias=bias, dtype=dtype)
+        self.to_k = operations.Linear(query_dim, self.inner_kv_dim, bias=bias, dtype=dtype)
+        self.to_v = operations.Linear(query_dim, self.inner_kv_dim, bias=bias, dtype=dtype)
 
         # Text stream projections
-        self.add_q_proj = operations.Linear(query_dim, self.inner_dim, bias=bias, dtype=dtype, device=device)
-        self.add_k_proj = operations.Linear(query_dim, self.inner_kv_dim, bias=bias, dtype=dtype, device=device)
-        self.add_v_proj = operations.Linear(query_dim, self.inner_kv_dim, bias=bias, dtype=dtype, device=device)
+        self.add_q_proj = operations.Linear(query_dim, self.inner_dim, bias=bias, dtype=dtype)
+        self.add_k_proj = operations.Linear(query_dim, self.inner_kv_dim, bias=bias, dtype=dtype)
+        self.add_v_proj = operations.Linear(query_dim, self.inner_kv_dim, bias=bias, dtype=dtype)
 
         # Output projections
-        self.to_out = nn.ModuleList([
-            operations.Linear(self.inner_dim, self.out_dim, bias=out_bias, dtype=dtype, device=device),
-            nn.Dropout(dropout)
+        self.to_out = nn.CellList([
+            operations.Linear(self.inner_dim, self.out_dim, bias=out_bias, dtype=dtype),
+            mint.nn.Dropout(dropout)
         ])
-        self.to_add_out = operations.Linear(self.inner_dim, self.out_context_dim, bias=out_bias, dtype=dtype, device=device)
+        self.to_add_out = operations.Linear(self.inner_dim, self.out_context_dim, bias=out_bias, dtype=dtype)
 
-    def forward(
+    def construct(
         self,
-        hidden_states: torch.FloatTensor,  # Image stream
-        encoder_hidden_states: torch.FloatTensor = None,  # Text stream
-        encoder_hidden_states_mask: torch.FloatTensor = None,
-        attention_mask: Optional[torch.FloatTensor] = None,
-        image_rotary_emb: Optional[torch.Tensor] = None,
+        hidden_states: mindspore.Tensor,  # Image stream
+        encoder_hidden_states: mindspore.Tensor = None,  # Text stream
+        encoder_hidden_states_mask: mindspore.Tensor = None,
+        attention_mask: Optional[mindspore.Tensor] = None,
+        image_rotary_emb: Optional[mindspore.Tensor] = None,
         transformer_options={},
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> Tuple[mindspore.Tensor, mindspore.Tensor]:
         batch_size = hidden_states.shape[0]
         seq_img = hidden_states.shape[1]
         seq_txt = encoder_hidden_states.shape[1]
@@ -153,9 +154,9 @@ class Attention(nn.Module):
         txt_query = self.norm_added_q(txt_query)
         txt_key = self.norm_added_k(txt_key)
 
-        joint_query = torch.cat([txt_query, img_query], dim=2)
-        joint_key = torch.cat([txt_key, img_key], dim=2)
-        joint_value = torch.cat([txt_value, img_value], dim=2)
+        joint_query = mint.cat([txt_query, img_query], dim=2)
+        joint_key = mint.cat([txt_key, img_key], dim=2)
+        joint_value = mint.cat([txt_value, img_value], dim=2)
 
         joint_query = apply_rope1(joint_query, image_rotary_emb)
         joint_key = apply_rope1(joint_key, image_rotary_emb)
@@ -174,7 +175,7 @@ class Attention(nn.Module):
         return img_attn_output, txt_attn_output
 
 
-class QwenImageTransformerBlock(nn.Module):
+class QwenImageTransformerBlock(nn.Cell):
     def __init__(
         self,
         dim: int,
@@ -192,19 +193,19 @@ class QwenImageTransformerBlock(nn.Module):
 
         self.img_mod = nn.Sequential(
             nn.SiLU(),
-            operations.Linear(dim, 6 * dim, bias=True, dtype=dtype, device=device),
+            operations.Linear(dim, 6 * dim, bias=True, dtype=dtype),
         )
-        self.img_norm1 = operations.LayerNorm(dim, elementwise_affine=False, eps=eps, dtype=dtype, device=device)
-        self.img_norm2 = operations.LayerNorm(dim, elementwise_affine=False, eps=eps, dtype=dtype, device=device)
-        self.img_mlp = FeedForward(dim=dim, dim_out=dim, dtype=dtype, device=device, operations=operations)
+        self.img_norm1 = operations.LayerNorm(dim, elementwise_affine=False, eps=eps, dtype=dtype)
+        self.img_norm2 = operations.LayerNorm(dim, elementwise_affine=False, eps=eps, dtype=dtype)
+        self.img_mlp = FeedForward(dim=dim, dim_out=dim, dtype=dtype, operations=operations)
 
         self.txt_mod = nn.Sequential(
             nn.SiLU(),
-            operations.Linear(dim, 6 * dim, bias=True, dtype=dtype, device=device),
+            operations.Linear(dim, 6 * dim, bias=True, dtype=dtype),
         )
-        self.txt_norm1 = operations.LayerNorm(dim, elementwise_affine=False, eps=eps, dtype=dtype, device=device)
-        self.txt_norm2 = operations.LayerNorm(dim, elementwise_affine=False, eps=eps, dtype=dtype, device=device)
-        self.txt_mlp = FeedForward(dim=dim, dim_out=dim, dtype=dtype, device=device, operations=operations)
+        self.txt_norm1 = operations.LayerNorm(dim, elementwise_affine=False, eps=eps, dtype=dtype)
+        self.txt_norm2 = operations.LayerNorm(dim, elementwise_affine=False, eps=eps, dtype=dtype)
+        self.txt_mlp = FeedForward(dim=dim, dim_out=dim, dtype=dtype, operations=operations)
 
         self.attn = Attention(
             query_dim=dim,
@@ -218,23 +219,23 @@ class QwenImageTransformerBlock(nn.Module):
             operations=operations,
         )
 
-    def _modulate(self, x: torch.Tensor, mod_params: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        shift, scale, gate = torch.chunk(mod_params, 3, dim=-1)
-        return torch.addcmul(shift.unsqueeze(1), x, 1 + scale.unsqueeze(1)), gate.unsqueeze(1)
+    def _modulate(self, x: mindspore.Tensor, mod_params: mindspore.Tensor) -> Tuple[mindspore.Tensor, mindspore.Tensor]:
+        shift, scale, gate = mint.chunk(mod_params, 3, dim=-1)
+        return ops.addcmul(shift.unsqueeze(1), x, 1 + scale.unsqueeze(1)), gate.unsqueeze(1)
 
-    def forward(
+    def construct(
         self,
-        hidden_states: torch.Tensor,
-        encoder_hidden_states: torch.Tensor,
-        encoder_hidden_states_mask: torch.Tensor,
-        temb: torch.Tensor,
-        image_rotary_emb: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
+        hidden_states: mindspore.Tensor,
+        encoder_hidden_states: mindspore.Tensor,
+        encoder_hidden_states_mask: mindspore.Tensor,
+        temb: mindspore.Tensor,
+        image_rotary_emb: Optional[Tuple[mindspore.Tensor, mindspore.Tensor]] = None,
         transformer_options={},
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> Tuple[mindspore.Tensor, mindspore.Tensor]:
         img_mod_params = self.img_mod(temb)
         txt_mod_params = self.txt_mod(temb)
-        img_mod1, img_mod2 = img_mod_params.chunk(2, dim=-1)
-        txt_mod1, txt_mod2 = txt_mod_params.chunk(2, dim=-1)
+        img_mod1, img_mod2 = img_mod_paramindspore.chunk(2, dim=-1)
+        txt_mod1, txt_mod2 = txt_mod_paramindspore.chunk(2, dim=-1)
 
         img_normed = self.img_norm1(hidden_states)
         img_modulated, img_gate1 = self._modulate(img_normed, img_mod1)
@@ -254,16 +255,16 @@ class QwenImageTransformerBlock(nn.Module):
 
         img_normed2 = self.img_norm2(hidden_states)
         img_modulated2, img_gate2 = self._modulate(img_normed2, img_mod2)
-        hidden_states = torch.addcmul(hidden_states, img_gate2, self.img_mlp(img_modulated2))
+        hidden_states = ops.addcmul(hidden_states, img_gate2, self.img_mlp(img_modulated2))
 
         txt_normed2 = self.txt_norm2(encoder_hidden_states)
         txt_modulated2, txt_gate2 = self._modulate(txt_normed2, txt_mod2)
-        encoder_hidden_states = torch.addcmul(encoder_hidden_states, txt_gate2, self.txt_mlp(txt_modulated2))
+        encoder_hidden_states = ops.addcmul(encoder_hidden_states, txt_gate2, self.txt_mlp(txt_modulated2))
 
         return encoder_hidden_states, hidden_states
 
 
-class LastLayer(nn.Module):
+class LastLayer(nn.Cell):
     def __init__(
         self,
         embedding_dim: int,
@@ -275,17 +276,17 @@ class LastLayer(nn.Module):
     ):
         super().__init__()
         self.silu = nn.SiLU()
-        self.linear = operations.Linear(conditioning_embedding_dim, embedding_dim * 2, bias=bias, dtype=dtype, device=device)
-        self.norm = operations.LayerNorm(embedding_dim, eps, elementwise_affine=False, bias=bias, dtype=dtype, device=device)
+        self.linear = operations.Linear(conditioning_embedding_dim, embedding_dim * 2, bias=bias, dtype=dtype)
+        self.norm = operations.LayerNorm(embedding_dim, eps, elementwise_affine=False, bias=bias, dtype=dtype)
 
-    def forward(self, x: torch.Tensor, conditioning_embedding: torch.Tensor) -> torch.Tensor:
+    def construct(self, x: mindspore.Tensor, conditioning_embedding: mindspore.Tensor) -> mindspore.Tensor:
         emb = self.linear(self.silu(conditioning_embedding))
-        scale, shift = torch.chunk(emb, 2, dim=1)
-        x = torch.addcmul(shift[:, None, :], self.norm(x), (1 + scale)[:, None, :])
+        scale, shift = mint.chunk(emb, 2, dim=1)
+        x = ops.addcmul(shift[:, None, :], self.norm(x), (1 + scale)[:, None, :])
         return x
 
 
-class QwenImageTransformer2DModel(nn.Module):
+class QwenImageTransformer2DModel(nn.Cell):
     def __init__(
         self,
         patch_size: int = 2,
@@ -321,11 +322,11 @@ class QwenImageTransformer2DModel(nn.Module):
             operations=operations
         )
 
-        self.txt_norm = operations.RMSNorm(joint_attention_dim, eps=1e-6, dtype=dtype, device=device)
-        self.img_in = operations.Linear(in_channels, self.inner_dim, dtype=dtype, device=device)
-        self.txt_in = operations.Linear(joint_attention_dim, self.inner_dim, dtype=dtype, device=device)
+        self.txt_norm = operations.RMSNorm(joint_attention_dim, eps=1e-6, dtype=dtype)
+        self.img_in = operations.Linear(in_channels, self.inner_dim, dtype=dtype)
+        self.txt_in = operations.Linear(joint_attention_dim, self.inner_dim, dtype=dtype)
 
-        self.transformer_blocks = nn.ModuleList([
+        self.transformer_blocks = nn.CellList([
             QwenImageTransformerBlock(
                 dim=self.inner_dim,
                 num_attention_heads=num_attention_heads,
@@ -339,7 +340,7 @@ class QwenImageTransformer2DModel(nn.Module):
 
         if final_layer:
             self.norm_out = LastLayer(self.inner_dim, self.inner_dim, dtype=dtype, device=device, operations=operations)
-            self.proj_out = operations.Linear(self.inner_dim, patch_size * patch_size * self.out_channels, bias=True, dtype=dtype, device=device)
+            self.proj_out = operations.Linear(self.inner_dim, patch_size * patch_size * self.out_channels, bias=True, dtype=dtype)
 
     def process_img(self, x, index=0, h_offset=0, w_offset=0):
         bs, c, t, h, w = x.shape
@@ -355,13 +356,13 @@ class QwenImageTransformer2DModel(nn.Module):
         h_offset = ((h_offset + (patch_size // 2)) // patch_size)
         w_offset = ((w_offset + (patch_size // 2)) // patch_size)
 
-        img_ids = torch.zeros((h_len, w_len, 3), device=x.device)
+        img_ids = mint.zeros((h_len, w_len, 3))
         img_ids[:, :, 0] = img_ids[:, :, 1] + index
-        img_ids[:, :, 1] = img_ids[:, :, 1] + torch.linspace(h_offset, h_len - 1 + h_offset, steps=h_len, device=x.device, dtype=x.dtype).unsqueeze(1) - (h_len // 2)
-        img_ids[:, :, 2] = img_ids[:, :, 2] + torch.linspace(w_offset, w_len - 1 + w_offset, steps=w_len, device=x.device, dtype=x.dtype).unsqueeze(0) - (w_len // 2)
+        img_ids[:, :, 1] = img_ids[:, :, 1] + mint.linspace(h_offset, h_len - 1 + h_offset, steps=h_len, dtype=x.dtype).unsqueeze(1) - (h_len // 2)
+        img_ids[:, :, 2] = img_ids[:, :, 2] + mint.linspace(w_offset, w_len - 1 + w_offset, steps=w_len, dtype=x.dtype).unsqueeze(0) - (w_len // 2)
         return hidden_states, repeat(img_ids, "h w c -> b (h w) c", b=bs), orig_shape
 
-    def forward(self, x, timestep, context, attention_mask=None, guidance=None, ref_latents=None, transformer_options={}, **kwargs):
+    def construct(self, x, timestep, context, attention_mask=None, guidance=None, ref_latents=None, transformer_options={}, **kwargs):
         return comfy.patcher_extension.WrapperExecutor.new_class_executor(
             self._forward,
             self,
@@ -374,7 +375,7 @@ class QwenImageTransformer2DModel(nn.Module):
         timesteps,
         context,
         attention_mask=None,
-        guidance: torch.Tensor = None,
+        guidance: mindspore.Tensor = None,
         ref_latents=None,
         transformer_options={},
         control=None,
@@ -409,12 +410,12 @@ class QwenImageTransformer2DModel(nn.Module):
                     w = max(w, ref.shape[-1] + w_offset)
 
                 kontext, kontext_ids, _ = self.process_img(ref, index=index, h_offset=h_offset, w_offset=w_offset)
-                hidden_states = torch.cat([hidden_states, kontext], dim=1)
-                img_ids = torch.cat([img_ids, kontext_ids], dim=1)
+                hidden_states = mint.cat([hidden_states, kontext], dim=1)
+                img_ids = mint.cat([img_ids, kontext_ids], dim=1)
 
         txt_start = round(max(((x.shape[-1] + (self.patch_size // 2)) // self.patch_size) // 2, ((x.shape[-2] + (self.patch_size // 2)) // self.patch_size) // 2))
-        txt_ids = torch.arange(txt_start, txt_start + context.shape[1], device=x.device).reshape(1, -1, 1).repeat(x.shape[0], 1, 3)
-        ids = torch.cat((txt_ids, img_ids), dim=1)
+        txt_ids = mint.arange(txt_start, txt_start + context.shape[1]).reshape(1, -1, 1).repeat(x.shape[0], 1, 3)
+        ids = mint.cat((txt_ids, img_ids), dim=1)
         image_rotary_emb = self.pe_embedder(ids).to(x.dtype).contiguous()
         del ids, txt_ids, img_ids
 

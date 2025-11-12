@@ -1,9 +1,10 @@
 # original version: https://github.com/Wan-Video/Wan2.1/blob/main/wan/modules/vae.py
 # Copyright 2024-2025 The Alibaba Wan Team Authors. All rights reserved.
-
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+from typing import Optional
+import mindspore
+import mindspore.nn as nn
+from mindspore import mint
+import mindspore.mint.nn.functional as F
 from einops import rearrange
 from comfy.ldm.modules.diffusionmodules.model import vae_attention
 
@@ -24,23 +25,22 @@ class CausalConv3d(ops.Conv3d):
                          self.padding[1], 2 * self.padding[0], 0)
         self.padding = (0, 0, 0)
 
-    def forward(self, x, cache_x=None, cache_list=None, cache_idx=None):
+    def construct(self, x, cache_x=None, cache_list=None, cache_idx=None):
         if cache_list is not None:
             cache_x = cache_list[cache_idx]
             cache_list[cache_idx] = None
 
         padding = list(self._padding)
         if cache_x is not None and self._padding[4] > 0:
-            cache_x = cache_x.to(x.device)
-            x = torch.cat([cache_x, x], dim=2)
+            x = mint.cat([cache_x, x], dim=2)
             padding[4] -= cache_x.shape[2]
             del cache_x
         x = F.pad(x, padding)
 
-        return super().forward(x)
+        return super().construct(x)
 
 
-class RMS_norm(nn.Module):
+class RMS_norm(nn.Cell):
 
     def __init__(self, dim, channel_first=True, images=True, bias=False):
         super().__init__()
@@ -49,15 +49,15 @@ class RMS_norm(nn.Module):
 
         self.channel_first = channel_first
         self.scale = dim**0.5
-        self.gamma = nn.Parameter(torch.ones(shape))
-        self.bias = nn.Parameter(torch.zeros(shape)) if bias else None
+        self.gamma = mindspore.Parameter(mint.ones(shape))
+        self.bias = mindspore.Parameter(mint.zeros(shape)) if bias else None
 
-    def forward(self, x):
+    def construct(self, x):
         return F.normalize(
             x, dim=(1 if self.channel_first else -1)) * self.scale * self.gamma.to(x) + (self.bias.to(x) if self.bias is not None else 0)
 
 
-class Resample(nn.Module):
+class Resample(nn.Cell):
 
     def __init__(self, dim, mode):
         assert mode in ('none', 'upsample2d', 'upsample3d', 'downsample2d',
@@ -68,32 +68,32 @@ class Resample(nn.Module):
 
         # layers
         if mode == 'upsample2d':
-            self.resample = nn.Sequential(
-                nn.Upsample(scale_factor=(2., 2.), mode='nearest-exact'),
+            self.resample = nn.SequentialCell(
+                mint.nn.Upsample(scale_factor=(2., 2.), mode='nearest-exact'),
                 ops.Conv2d(dim, dim // 2, 3, padding=1))
         elif mode == 'upsample3d':
-            self.resample = nn.Sequential(
-                nn.Upsample(scale_factor=(2., 2.), mode='nearest-exact'),
+            self.resample = nn.SequentialCell(
+                mint.nn.Upsample(scale_factor=(2., 2.), mode='nearest-exact'),
                 ops.Conv2d(dim, dim // 2, 3, padding=1))
             self.time_conv = CausalConv3d(
                 dim, dim * 2, (3, 1, 1), padding=(1, 0, 0))
 
         elif mode == 'downsample2d':
-            self.resample = nn.Sequential(
-                nn.ZeroPad2d((0, 1, 0, 1)),
+            self.resample = nn.SequentialCell(
+                mint.nn.ZeroPad2d((0, 1, 0, 1)),
                 ops.Conv2d(dim, dim, 3, stride=(2, 2)))
         elif mode == 'downsample3d':
-            self.resample = nn.Sequential(
-                nn.ZeroPad2d((0, 1, 0, 1)),
+            self.resample = nn.SequentialCell(
+                mint.nn.ZeroPad2d((0, 1, 0, 1)),
                 ops.Conv2d(dim, dim, 3, stride=(2, 2)))
             self.time_conv = CausalConv3d(
                 dim, dim, (3, 1, 1), stride=(2, 1, 1), padding=(0, 0, 0))
 
         else:
-            self.resample = nn.Identity()
+            self.resample = mint.nn.Identity()
 
-    def forward(self, x, feat_cache=None, feat_idx=[0]):
-        b, c, t, h, w = x.size()
+    def construct(self, x, feat_cache=None, feat_idx=[0]):
+        b, c, t, h, w = x.shape
         if self.mode == 'upsample3d':
             if feat_cache is not None:
                 idx = feat_idx[0]
@@ -106,15 +106,14 @@ class Resample(nn.Module):
                     if cache_x.shape[2] < 2 and feat_cache[
                             idx] is not None and feat_cache[idx] != 'Rep':
                         # cache last frame of last two chunk
-                        cache_x = torch.cat([
-                            feat_cache[idx][:, :, -1, :, :].unsqueeze(2).to(
-                                cache_x.device), cache_x
+                        cache_x = mint.cat([
+                            feat_cache[idx][:, :, -1, :, :].unsqueeze(2), cache_x
                         ],
                                             dim=2)
                     if cache_x.shape[2] < 2 and feat_cache[
                             idx] is not None and feat_cache[idx] == 'Rep':
-                        cache_x = torch.cat([
-                            torch.zeros_like(cache_x).to(cache_x.device),
+                        cache_x = mint.cat([
+                            mint.zeros_like(cache_x),
                             cache_x
                         ],
                                             dim=2)
@@ -126,7 +125,7 @@ class Resample(nn.Module):
                     feat_idx[0] += 1
 
                     x = x.reshape(b, 2, c, t, h, w)
-                    x = torch.stack((x[:, 0, :, :, :, :], x[:, 1, :, :, :, :]),
+                    x = mint.stack((x[:, 0, :, :, :, :], x[:, 1, :, :, :, :]),
                                     3)
                     x = x.reshape(b, c, t * 2, h, w)
         t = x.shape[2]
@@ -145,16 +144,16 @@ class Resample(nn.Module):
                     cache_x = x[:, :, -1:, :, :].clone()
                     # if cache_x.shape[2] < 2 and feat_cache[idx] is not None and feat_cache[idx]!='Rep':
                     #     # cache last frame of last two chunk
-                    #     cache_x = torch.cat([feat_cache[idx][:, :, -1, :, :].unsqueeze(2).to(cache_x.device), cache_x], dim=2)
+                    #     cache_x = mint.cat([feat_cache[idx][:, :, -1, :, :].unsqueeze(2), cache_x], dim=2)
 
                     x = self.time_conv(
-                        torch.cat([feat_cache[idx][:, :, -1:, :, :], x], 2))
+                        mint.cat([feat_cache[idx][:, :, -1:, :, :], x], 2))
                     feat_cache[idx] = cache_x
                     feat_idx[0] += 1
         return x
 
 
-class ResidualBlock(nn.Module):
+class ResidualBlock(nn.Cell):
 
     def __init__(self, in_dim, out_dim, dropout=0.0):
         super().__init__()
@@ -162,15 +161,15 @@ class ResidualBlock(nn.Module):
         self.out_dim = out_dim
 
         # layers
-        self.residual = nn.Sequential(
-            RMS_norm(in_dim, images=False), nn.SiLU(),
+        self.residual = nn.SequentialCell(
+            RMS_norm(in_dim, images=False), mint.nn.SiLU(),
             CausalConv3d(in_dim, out_dim, 3, padding=1),
-            RMS_norm(out_dim, images=False), nn.SiLU(), nn.Dropout(dropout),
+            RMS_norm(out_dim, images=False), mint.nn.SiLU(), mint.nn.Dropout(dropout),
             CausalConv3d(out_dim, out_dim, 3, padding=1))
         self.shortcut = CausalConv3d(in_dim, out_dim, 1) \
-            if in_dim != out_dim else nn.Identity()
+            if in_dim != out_dim else mint.nn.Identity()
 
-    def forward(self, x, feat_cache=None, feat_idx=[0]):
+    def construct(self, x, feat_cache=None, feat_idx=[0]):
         old_x = x
         for layer in self.residual:
             if isinstance(layer, CausalConv3d) and feat_cache is not None:
@@ -178,9 +177,8 @@ class ResidualBlock(nn.Module):
                 cache_x = x[:, :, -CACHE_T:, :, :].clone()
                 if cache_x.shape[2] < 2 and feat_cache[idx] is not None:
                     # cache last frame of last two chunk
-                    cache_x = torch.cat([
-                        feat_cache[idx][:, :, -1, :, :].unsqueeze(2).to(
-                            cache_x.device), cache_x
+                    cache_x = mint.cat([
+                        feat_cache[idx][:, :, -1, :, :].unsqueeze(2), cache_x
                     ],
                                         dim=2)
                 x = layer(x, cache_list=feat_cache, cache_idx=idx)
@@ -191,7 +189,7 @@ class ResidualBlock(nn.Module):
         return x + self.shortcut(old_x)
 
 
-class AttentionBlock(nn.Module):
+class AttentionBlock(nn.Cell):
     """
     Causal self-attention with a single head.
     """
@@ -206,9 +204,9 @@ class AttentionBlock(nn.Module):
         self.proj = ops.Conv2d(dim, dim, 1)
         self.optimized_attention = vae_attention()
 
-    def forward(self, x):
+    def construct(self, x):
         identity = x
-        b, c, t, h, w = x.size()
+        b, c, t, h, w = x.shape
         x = rearrange(x, 'b c t h w -> (b t) c h w')
         x = self.norm(x)
         # compute query, key, value
@@ -222,7 +220,7 @@ class AttentionBlock(nn.Module):
         return x + identity
 
 
-class Encoder3d(nn.Module):
+class Encoder3d(nn.Cell):
 
     def __init__(self,
                  dim=128,
@@ -263,27 +261,26 @@ class Encoder3d(nn.Module):
                     i] else 'downsample2d'
                 downsamples.append(Resample(out_dim, mode=mode))
                 scale /= 2.0
-        self.downsamples = nn.Sequential(*downsamples)
+        self.downsamples = nn.SequentialCell(*downsamples)
 
         # middle blocks
-        self.middle = nn.Sequential(
+        self.middle = nn.SequentialCell(
             ResidualBlock(out_dim, out_dim, dropout), AttentionBlock(out_dim),
             ResidualBlock(out_dim, out_dim, dropout))
 
         # output blocks
-        self.head = nn.Sequential(
-            RMS_norm(out_dim, images=False), nn.SiLU(),
+        self.head = nn.SequentialCell(
+            RMS_norm(out_dim, images=False), mint.nn.SiLU(),
             CausalConv3d(out_dim, z_dim, 3, padding=1))
 
-    def forward(self, x, feat_cache=None, feat_idx=[0]):
+    def construct(self, x, feat_cache=None, feat_idx=[0]):
         if feat_cache is not None:
             idx = feat_idx[0]
             cache_x = x[:, :, -CACHE_T:, :, :].clone()
             if cache_x.shape[2] < 2 and feat_cache[idx] is not None:
                 # cache last frame of last two chunk
-                cache_x = torch.cat([
-                    feat_cache[idx][:, :, -1, :, :].unsqueeze(2).to(
-                        cache_x.device), cache_x
+                cache_x = mint.cat([
+                    feat_cache[idx][:, :, -1, :, :].unsqueeze(2), cache_x
                 ],
                                     dim=2)
             x = self.conv1(x, feat_cache[idx])
@@ -313,9 +310,8 @@ class Encoder3d(nn.Module):
                 cache_x = x[:, :, -CACHE_T:, :, :].clone()
                 if cache_x.shape[2] < 2 and feat_cache[idx] is not None:
                     # cache last frame of last two chunk
-                    cache_x = torch.cat([
-                        feat_cache[idx][:, :, -1, :, :].unsqueeze(2).to(
-                            cache_x.device), cache_x
+                    cache_x = mint.cat([
+                        feat_cache[idx][:, :, -1, :, :].unsqueeze(2), cache_x
                     ],
                                         dim=2)
                 x = layer(x, feat_cache[idx])
@@ -326,7 +322,7 @@ class Encoder3d(nn.Module):
         return x
 
 
-class Decoder3d(nn.Module):
+class Decoder3d(nn.Cell):
 
     def __init__(self,
                  dim=128,
@@ -352,7 +348,7 @@ class Decoder3d(nn.Module):
         self.conv1 = CausalConv3d(z_dim, dims[0], 3, padding=1)
 
         # middle blocks
-        self.middle = nn.Sequential(
+        self.middle = nn.SequentialCell(
             ResidualBlock(dims[0], dims[0], dropout), AttentionBlock(dims[0]),
             ResidualBlock(dims[0], dims[0], dropout))
 
@@ -373,23 +369,22 @@ class Decoder3d(nn.Module):
                 mode = 'upsample3d' if temperal_upsample[i] else 'upsample2d'
                 upsamples.append(Resample(out_dim, mode=mode))
                 scale *= 2.0
-        self.upsamples = nn.Sequential(*upsamples)
+        self.upsamples = nn.SequentialCell(*upsamples)
 
         # output blocks
-        self.head = nn.Sequential(
-            RMS_norm(out_dim, images=False), nn.SiLU(),
+        self.head = nn.SequentialCell(
+            RMS_norm(out_dim, images=False), mint.nn.SiLU(),
             CausalConv3d(out_dim, 3, 3, padding=1))
 
-    def forward(self, x, feat_cache=None, feat_idx=[0]):
+    def construct(self, x, feat_cache=None, feat_idx=[0]):
         ## conv1
         if feat_cache is not None:
             idx = feat_idx[0]
             cache_x = x[:, :, -CACHE_T:, :, :].clone()
             if cache_x.shape[2] < 2 and feat_cache[idx] is not None:
                 # cache last frame of last two chunk
-                cache_x = torch.cat([
-                    feat_cache[idx][:, :, -1, :, :].unsqueeze(2).to(
-                        cache_x.device), cache_x
+                cache_x = mint.cat([
+                    feat_cache[idx][:, :, -1, :, :].unsqueeze(2), cache_x
                 ],
                                     dim=2)
             x = self.conv1(x, feat_cache[idx])
@@ -419,9 +414,8 @@ class Decoder3d(nn.Module):
                 cache_x = x[:, :, -CACHE_T:, :, :].clone()
                 if cache_x.shape[2] < 2 and feat_cache[idx] is not None:
                     # cache last frame of last two chunk
-                    cache_x = torch.cat([
-                        feat_cache[idx][:, :, -1, :, :].unsqueeze(2).to(
-                            cache_x.device), cache_x
+                    cache_x = mint.cat([
+                        feat_cache[idx][:, :, -1, :, :].unsqueeze(2), cache_x
                     ],
                                         dim=2)
                 x = layer(x, feat_cache[idx])
@@ -440,7 +434,7 @@ def count_conv3d(model):
     return count
 
 
-class WanVAE(nn.Module):
+class WanVAE(nn.Cell):
 
     def __init__(self,
                  dim=128,
@@ -486,7 +480,7 @@ class WanVAE(nn.Module):
                     x[:, :, 1 + 4 * (i - 1):1 + 4 * i, :, :],
                     feat_cache=feat_map,
                     feat_idx=conv_idx)
-                out = torch.cat([out, out_], 2)
+                out = mint.cat([out, out_], 2)
         mu, log_var = self.conv1(out).chunk(2, dim=1)
         return mu
 
@@ -509,5 +503,10 @@ class WanVAE(nn.Module):
                     x[:, :, i:i + 1, :, :],
                     feat_cache=feat_map,
                     feat_idx=conv_idx)
-                out = torch.cat([out, out_], 2)
+                out = mint.cat([out, out_], 2)
         return out
+    
+    def to(self, dtype: Optional[mindspore.Type] = None):
+        for p in self.get_parameters():
+            p.set_dtype(dtype)
+        return self

@@ -925,32 +925,30 @@ class UNETLoader:
         model = comfy.sd.load_diffusion_model(unet_path, model_options=model_options)
         return (model,)
 
-# class CLIPLoader:
-#     @classmethod
-#     def INPUT_TYPES(s):
-#         return {"required": { "clip_name": (folder_paths.get_filename_list("text_encoders"), ),
-#                               "type": (["stable_diffusion", "stable_cascade", "sd3", "stable_audio", "mochi", "ltxv", "pixart", "cosmos", "lumina2", "wan", "hidream", "chroma", "ace", "omnigen2", "qwen_image", "hunyuan_image"], ),
-#                               },
-#                 "optional": {
-#                               "device": (["default", "cpu"], {"advanced": True}),
-#                              }}
-#     RETURN_TYPES = ("CLIP",)
-#     FUNCTION = "load_clip"
+class CLIPLoader:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": { "clip_name": (folder_paths.get_filename_list("text_encoders"), ),
+                              "type": (["stable_diffusion", "stable_cascade", "sd3", "stable_audio", "mochi", "ltxv", "pixart", "cosmos", "lumina2", "wan", "hidream", "chroma", "ace", "omnigen2", "qwen_image", "hunyuan_image"], ),
+                              },
+                "optional": {
+                              "device": (["default", "cpu"], {"advanced": True}),
+                             }}
+    RETURN_TYPES = ("CLIP",)
+    FUNCTION = "load_clip"
 
-#     CATEGORY = "advanced/loaders"
+    CATEGORY = "advanced/loaders"
 
-#     DESCRIPTION = "[Recipes]\n\nstable_diffusion: clip-l\nstable_cascade: clip-g\nsd3: t5 xxl/ clip-g / clip-l\nstable_audio: t5 base\nmochi: t5 xxl\ncosmos: old t5 xxl\nlumina2: gemma 2 2B\nwan: umt5 xxl\n hidream: llama-3.1 (Recommend) or t5\nomnigen2: qwen vl 2.5 3B"
+    DESCRIPTION = "[Recipes]\n\nstable_diffusion: clip-l\nstable_cascade: clip-g\nsd3: t5 xxl/ clip-g / clip-l\nstable_audio: t5 base\nmochi: t5 xxl\ncosmos: old t5 xxl\nlumina2: gemma 2 2B\nwan: umt5 xxl\n hidream: llama-3.1 (Recommend) or t5\nomnigen2: qwen vl 2.5 3B"
 
-#     def load_clip(self, clip_name, type="stable_diffusion", device="default"):
-#         clip_type = getattr(comfy.sd.CLIPType, type.upper(), comfy.sd.CLIPType.STABLE_DIFFUSION)
+    def load_clip(self, clip_name, type="stable_diffusion", device="default"):
+        clip_type = getattr(comfy.sd.CLIPType, type.upper(), comfy.sd.CLIPType.STABLE_DIFFUSION)
 
-#         model_options = {}
-#         if device == "cpu":
-#             model_options["load_device"] = model_options["offload_device"] = None  #torch.device("cpu")
+        model_options = {}
 
-#         clip_path = folder_paths.get_full_path_or_raise("text_encoders", clip_name)
-#         clip = comfy.sd.load_clip(ckpt_paths=[clip_path], embedding_directory=folder_paths.get_folder_paths("embeddings"), clip_type=clip_type, model_options=model_options)
-#         return (clip,)
+        clip_path = folder_paths.get_full_path_or_raise("text_encoders", clip_name)
+        clip = comfy.sd.load_clip(ckpt_paths=[clip_path], embedding_directory=folder_paths.get_folder_paths("embeddings"), clip_type=clip_type, model_options=model_options)
+        return (clip,)
 
 class DualCLIPLoader:
     @classmethod
@@ -1471,56 +1469,56 @@ class EmptyLatentImage:
 #         s["noise_mask"] = mask.reshape((-1, 1, mask.shape[-2], mask.shape[-1]))
 #         return (s,)
 
-# def common_ksampler(model, seed, steps, cfg, sampler_name, scheduler, positive, negative, latent, denoise=1.0, disable_noise=False, start_step=None, last_step=None, force_full_denoise=False):
-#     latent_image = latent["samples"]
-#     latent_image = comfy.sample.fix_empty_latent_channels(model, latent_image)
+def common_ksampler(model, seed, steps, cfg, sampler_name, scheduler, positive, negative, latent, denoise=1.0, disable_noise=False, start_step=None, last_step=None, force_full_denoise=False):
+    latent_image = latent["samples"]
+    latent_image = comfy.sample.fix_empty_latent_channels(model, latent_image)
 
-#     if disable_noise:
-#         noise = torch.zeros(latent_image.shape, dtype=latent_image.dtype)
-#     else:
-#         batch_inds = latent["batch_index"] if "batch_index" in latent else None
-#         noise = comfy.sample.prepare_noise(latent_image, seed, batch_inds)
+    if disable_noise:
+        noise = mint.zeros(latent_image.shape, dtype=latent_image.dtype)
+    else:
+        batch_inds = latent["batch_index"] if "batch_index" in latent else None
+        noise = comfy.sample.prepare_noise(latent_image, seed, batch_inds)
 
-#     noise_mask = None
-#     if "noise_mask" in latent:
-#         noise_mask = latent["noise_mask"]
+    noise_mask = None
+    if "noise_mask" in latent:
+        noise_mask = latent["noise_mask"]
 
-#     callback = latent_preview.prepare_callback(model, steps)
-#     disable_pbar = not comfy.utils.PROGRESS_BAR_ENABLED
-#     samples = comfy.sample.sample(model, noise, steps, cfg, sampler_name, scheduler, positive, negative, latent_image,
-#                                   denoise=denoise, disable_noise=disable_noise, start_step=start_step, last_step=last_step,
-#                                   force_full_denoise=force_full_denoise, noise_mask=noise_mask, callback=callback, disable_pbar=disable_pbar, seed=seed)
-#     out = latent.copy()
-#     out["samples"] = samples
-#     return (out, )
+    callback = latent_preview.prepare_callback(model, steps)
+    disable_pbar = not comfy.utils.PROGRESS_BAR_ENABLED
+    samples = comfy.sample.sample(model, noise, steps, cfg, sampler_name, scheduler, positive, negative, latent_image,
+                                  denoise=denoise, disable_noise=disable_noise, start_step=start_step, last_step=last_step,
+                                  force_full_denoise=force_full_denoise, noise_mask=noise_mask, callback=callback, disable_pbar=disable_pbar, seed=seed)
+    out = latent.copy()
+    out["samples"] = samples
+    return (out, )
 
-# class KSampler:
-#     @classmethod
-#     def INPUT_TYPES(s):
-#         return {
-#             "required": {
-#                 "model": ("MODEL", {"tooltip": "The model used for denoising the input latent."}),
-#                 "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "control_after_generate": True, "tooltip": "The random seed used for creating the noise."}),
-#                 "steps": ("INT", {"default": 20, "min": 1, "max": 10000, "tooltip": "The number of steps used in the denoising process."}),
-#                 "cfg": ("FLOAT", {"default": 8.0, "min": 0.0, "max": 100.0, "step":0.1, "round": 0.01, "tooltip": "The Classifier-Free Guidance scale balances creativity and adherence to the prompt. Higher values result in images more closely matching the prompt however too high values will negatively impact quality."}),
-#                 "sampler_name": (comfy.samplers.KSampler.SAMPLERS, {"tooltip": "The algorithm used when sampling, this can affect the quality, speed, and style of the generated output."}),
-#                 "scheduler": (comfy.samplers.KSampler.SCHEDULERS, {"tooltip": "The scheduler controls how noise is gradually removed to form the image."}),
-#                 "positive": ("CONDITIONING", {"tooltip": "The conditioning describing the attributes you want to include in the image."}),
-#                 "negative": ("CONDITIONING", {"tooltip": "The conditioning describing the attributes you want to exclude from the image."}),
-#                 "latent_image": ("LATENT", {"tooltip": "The latent image to denoise."}),
-#                 "denoise": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "The amount of denoising applied, lower values will maintain the structure of the initial image allowing for image to image sampling."}),
-#             }
-#         }
+class KSampler:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "model": ("MODEL", {"tooltip": "The model used for denoising the input latent."}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "control_after_generate": True, "tooltip": "The random seed used for creating the noise."}),
+                "steps": ("INT", {"default": 20, "min": 1, "max": 10000, "tooltip": "The number of steps used in the denoising process."}),
+                "cfg": ("FLOAT", {"default": 8.0, "min": 0.0, "max": 100.0, "step":0.1, "round": 0.01, "tooltip": "The Classifier-Free Guidance scale balances creativity and adherence to the prompt. Higher values result in images more closely matching the prompt however too high values will negatively impact quality."}),
+                "sampler_name": (comfy.samplers.KSampler.SAMPLERS, {"tooltip": "The algorithm used when sampling, this can affect the quality, speed, and style of the generated output."}),
+                "scheduler": (comfy.samplers.KSampler.SCHEDULERS, {"tooltip": "The scheduler controls how noise is gradually removed to form the image."}),
+                "positive": ("CONDITIONING", {"tooltip": "The conditioning describing the attributes you want to include in the image."}),
+                "negative": ("CONDITIONING", {"tooltip": "The conditioning describing the attributes you want to exclude from the image."}),
+                "latent_image": ("LATENT", {"tooltip": "The latent image to denoise."}),
+                "denoise": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "The amount of denoising applied, lower values will maintain the structure of the initial image allowing for image to image sampling."}),
+            }
+        }
 
-#     RETURN_TYPES = ("LATENT",)
-#     OUTPUT_TOOLTIPS = ("The denoised latent.",)
-#     FUNCTION = "sample"
+    RETURN_TYPES = ("LATENT",)
+    OUTPUT_TOOLTIPS = ("The denoised latent.",)
+    FUNCTION = "sample"
 
-#     CATEGORY = "sampling"
-#     DESCRIPTION = "Uses the provided model, positive and negative conditioning to denoise the latent image."
+    CATEGORY = "sampling"
+    DESCRIPTION = "Uses the provided model, positive and negative conditioning to denoise the latent image."
 
-#     def sample(self, model, seed, steps, cfg, sampler_name, scheduler, positive, negative, latent_image, denoise=1.0):
-#         return common_ksampler(model, seed, steps, cfg, sampler_name, scheduler, positive, negative, latent_image, denoise=denoise)
+    def sample(self, model, seed, steps, cfg, sampler_name, scheduler, positive, negative, latent_image, denoise=1.0):
+        return common_ksampler(model, seed, steps, cfg, sampler_name, scheduler, positive, negative, latent_image, denoise=denoise)
 
 # class KSamplerAdvanced:
 #     @classmethod
@@ -1942,7 +1940,7 @@ class PreviewImage(SaveImage):
 
 
 NODE_CLASS_MAPPINGS = {
-    # "KSampler": KSampler,
+    "KSampler": KSampler,
     # "CheckpointLoaderSimple": CheckpointLoaderSimple,
     "CLIPTextEncode": CLIPTextEncode,
     # "CLIPSetLastLayer": CLIPSetLastLayer,
@@ -1981,7 +1979,7 @@ NODE_CLASS_MAPPINGS = {
     # "LatentFlip": LatentFlip,
     # "LatentCrop": LatentCrop,
     # "LoraLoader": LoraLoader,
-    # "CLIPLoader": CLIPLoader,
+    "CLIPLoader": CLIPLoader,
     "UNETLoader": UNETLoader,
     "DualCLIPLoader": DualCLIPLoader,
     # "CLIPVisionEncode": CLIPVisionEncode,
@@ -2266,7 +2264,7 @@ async def init_builtin_extra_nodes():
         # "nodes_freelunch.py",
         "nodes_custom_sampler.py",
         # "nodes_hypertile.py",
-        # "nodes_model_advanced.py",
+        "nodes_model_advanced.py",
         # "nodes_model_downscale.py",
         # "nodes_images.py",
         # "nodes_video_model.py",
@@ -2289,7 +2287,7 @@ async def init_builtin_extra_nodes():
         # "nodes_advanced_samplers.py",
         # "nodes_webcam.py",
         # "nodes_audio.py",
-        # "nodes_sd3.py",
+        "nodes_sd3.py",
         # "nodes_gits.py",
         # "nodes_controlnet.py",
         # "nodes_hunyuan.py",

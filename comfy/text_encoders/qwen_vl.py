@@ -1,13 +1,14 @@
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+import mindspore
+import mindspore.nn as nn
+from mindspore import mint
+import mindspore.mint.nn.functional as F
 from typing import Optional, Tuple
 import math
 from comfy.ldm.modules.attention import optimized_attention_for_device
 
 
 def process_qwen2vl_images(
-    images: torch.Tensor,
+    images: mindspore.Tensor,
     min_pixels: int = 3136,
     max_pixels: int = 12845056,
     patch_size: int = 14,
@@ -22,7 +23,6 @@ def process_qwen2vl_images(
         image_std = [0.26862954, 0.26130258, 0.27577711]
 
     batch_size, height, width, channels = images.shape
-    device = images.device
     # dtype = images.dtype
 
     images = images.permute(0, 3, 1, 2)
@@ -57,11 +57,11 @@ def process_qwen2vl_images(
 
     grid_h = h_bar // patch_size
     grid_w = w_bar // patch_size
-    grid_thw = torch.tensor([1, grid_h, grid_w], device=device, dtype=torch.long)
+    grid_thw = mindspore.tensor([1, grid_h, grid_w], dtype=mindspore.int64)
 
     pixel_values = normalized
     grid_thw_list.append(grid_thw)
-    image_grid_thw = torch.stack(grid_thw_list)
+    image_grid_thw = mint.stack(grid_thw_list)
 
     grid_t = 1
     channel = pixel_values.shape[0]
@@ -88,7 +88,7 @@ def process_qwen2vl_images(
     return flatten_patches, image_grid_thw
 
 
-class VisionPatchEmbed(nn.Module):
+class VisionPatchEmbed(nn.Cell):
     def __init__(
         self,
         patch_size: int = 14,
@@ -112,11 +112,10 @@ class VisionPatchEmbed(nn.Module):
             kernel_size=kernel_size,
             stride=kernel_size,
             bias=False,
-            device=device,
             dtype=dtype
         )
 
-    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+    def construct(self, hidden_states: mindspore.Tensor) -> mindspore.Tensor:
         hidden_states = hidden_states.view(
             -1, self.in_channels, self.temporal_patch_size, self.patch_size, self.patch_size
         )
@@ -127,7 +126,7 @@ class VisionPatchEmbed(nn.Module):
 def rotate_half(x):
     x1 = x[..., : x.shape[-1] // 2]
     x2 = x[..., x.shape[-1] // 2 :]
-    return torch.cat((-x2, x1), dim=-1)
+    return mint.cat((-x2, x1), dim=-1)
 
 
 def apply_rotary_pos_emb_vision(q, k, cos, sin):
@@ -137,37 +136,37 @@ def apply_rotary_pos_emb_vision(q, k, cos, sin):
     return q_embed, k_embed
 
 
-class VisionRotaryEmbedding(nn.Module):
+class VisionRotaryEmbedding(nn.Cell):
     def __init__(self, dim: int, theta: float = 10000.0):
         super().__init__()
         self.dim = dim
         self.theta = theta
 
-    def forward(self, seqlen: int, device) -> torch.Tensor:
-        inv_freq = 1.0 / (self.theta ** (torch.arange(0, self.dim, 2, dtype=torch.float, device=device) / self.dim))
-        seq = torch.arange(seqlen, device=inv_freq.device, dtype=inv_freq.dtype)
-        freqs = torch.outer(seq, inv_freq)
+    def construct(self, seqlen: int) -> mindspore.Tensor:
+        inv_freq = 1.0 / (self.theta ** (mint.arange(0, self.dim, 2, dtype=mindspore.float32) / self.dim))
+        seq = mint.arange(seqlen, dtype=inv_freq.dtype)
+        freqs = mint.outer(seq, inv_freq)
         return freqs
 
 
-class PatchMerger(nn.Module):
+class PatchMerger(nn.Cell):
     def __init__(self, dim: int, context_dim: int, spatial_merge_size: int = 2, device=None, dtype=None, ops=None):
         super().__init__()
         self.hidden_size = context_dim * (spatial_merge_size ** 2)
-        self.ln_q = ops.RMSNorm(context_dim, eps=1e-6, device=device, dtype=dtype)
-        self.mlp = nn.Sequential(
-            ops.Linear(self.hidden_size, self.hidden_size, device=device, dtype=dtype),
-            nn.GELU(),
-            ops.Linear(self.hidden_size, dim, device=device, dtype=dtype),
+        self.ln_q = ops.RMSNorm(context_dim, eps=1e-6, dtype=dtype)
+        self.mlp = nn.SequentialCell(
+            ops.Linear(self.hidden_size, self.hidden_size, dtype=dtype),
+            mint.nn.GELU(),
+            ops.Linear(self.hidden_size, dim, dtype=dtype),
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def construct(self, x: mindspore.Tensor) -> mindspore.Tensor:
         x = self.ln_q(x).reshape(-1, self.hidden_size)
         x = self.mlp(x)
         return x
 
 
-class VisionAttention(nn.Module):
+class VisionAttention(nn.Cell):
     def __init__(self, hidden_size: int, num_heads: int, device=None, dtype=None, ops=None):
         super().__init__()
         self.hidden_size = hidden_size
@@ -175,16 +174,16 @@ class VisionAttention(nn.Module):
         self.head_dim = hidden_size // num_heads
         self.scaling = self.head_dim ** -0.5
 
-        self.qkv = ops.Linear(hidden_size, hidden_size * 3, bias=True, device=device, dtype=dtype)
-        self.proj = ops.Linear(hidden_size, hidden_size, bias=True, device=device, dtype=dtype)
+        self.qkv = ops.Linear(hidden_size, hidden_size * 3, bias=True, dtype=dtype)
+        self.proj = ops.Linear(hidden_size, hidden_size, bias=True, dtype=dtype)
 
-    def forward(
+    def construct(
         self,
-        hidden_states: torch.Tensor,
-        position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
+        hidden_states: mindspore.Tensor,
+        position_embeddings: Optional[Tuple[mindspore.Tensor, mindspore.Tensor]] = None,
         cu_seqlens=None,
         optimized_attention=None,
-    ) -> torch.Tensor:
+    ) -> mindspore.Tensor:
         if hidden_states.dim() == 2:
             seq_length, _ = hidden_states.shape
             batch_size = 1
@@ -206,47 +205,47 @@ class VisionAttention(nn.Module):
 
         lengths = cu_seqlens[1:] - cu_seqlens[:-1]
         splits = [
-            torch.split(tensor, lengths.tolist(), dim=2) for tensor in (query_states, key_states, value_states)
+            mint.split(tensor, lengths.tolist(), dim=2) for tensor in (query_states, key_states, value_states)
         ]
 
         attn_outputs = [
             optimized_attention(q, k, v, self.num_heads, skip_reshape=True)
             for q, k, v in zip(*splits)
         ]
-        attn_output = torch.cat(attn_outputs, dim=1)
+        attn_output = mint.cat(attn_outputs, dim=1)
         attn_output = attn_output.reshape(seq_length, -1)
         attn_output = self.proj(attn_output)
 
         return attn_output
 
 
-class VisionMLP(nn.Module):
+class VisionMLP(nn.Cell):
     def __init__(self, hidden_size: int, intermediate_size: int, device=None, dtype=None, ops=None):
         super().__init__()
-        self.gate_proj = ops.Linear(hidden_size, intermediate_size, bias=True, device=device, dtype=dtype)
-        self.up_proj = ops.Linear(hidden_size, intermediate_size, bias=True, device=device, dtype=dtype)
-        self.down_proj = ops.Linear(intermediate_size, hidden_size, bias=True, device=device, dtype=dtype)
-        self.act_fn = nn.SiLU()
+        self.gate_proj = ops.Linear(hidden_size, intermediate_size, bias=True, dtype=dtype)
+        self.up_proj = ops.Linear(hidden_size, intermediate_size, bias=True, dtype=dtype)
+        self.down_proj = ops.Linear(intermediate_size, hidden_size, bias=True, dtype=dtype)
+        self.act_fn = mint.nn.SiLU()
 
-    def forward(self, hidden_state):
+    def construct(self, hidden_state):
         return self.down_proj(self.act_fn(self.gate_proj(hidden_state)) * self.up_proj(hidden_state))
 
 
-class VisionBlock(nn.Module):
+class VisionBlock(nn.Cell):
     def __init__(self, hidden_size: int, intermediate_size: int, num_heads: int, device=None, dtype=None, ops=None):
         super().__init__()
-        self.norm1 = ops.RMSNorm(hidden_size, eps=1e-6, device=device, dtype=dtype)
-        self.norm2 = ops.RMSNorm(hidden_size, eps=1e-6, device=device, dtype=dtype)
-        self.attn = VisionAttention(hidden_size, num_heads, device=device, dtype=dtype, ops=ops)
-        self.mlp = VisionMLP(hidden_size, intermediate_size, device=device, dtype=dtype, ops=ops)
+        self.norm1 = ops.RMSNorm(hidden_size, eps=1e-6, dtype=dtype)
+        self.norm2 = ops.RMSNorm(hidden_size, eps=1e-6, dtype=dtype)
+        self.attn = VisionAttention(hidden_size, num_heads, device=None, dtype=dtype, ops=ops)
+        self.mlp = VisionMLP(hidden_size, intermediate_size, device=None, dtype=dtype, ops=ops)
 
-    def forward(
+    def construct(
         self,
-        hidden_states: torch.Tensor,
-        position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
+        hidden_states: mindspore.Tensor,
+        position_embeddings: Optional[Tuple[mindspore.Tensor, mindspore.Tensor]] = None,
         cu_seqlens=None,
         optimized_attention=None,
-    ) -> torch.Tensor:
+    ) -> mindspore.Tensor:
         residual = hidden_states
         hidden_states = self.norm1(hidden_states)
         hidden_states = self.attn(hidden_states, position_embeddings, cu_seqlens, optimized_attention)
@@ -260,7 +259,7 @@ class VisionBlock(nn.Module):
         return hidden_states
 
 
-class Qwen2VLVisionTransformer(nn.Module):
+class Qwen2VLVisionTransformer(nn.Cell):
     def __init__(
         self,
         hidden_size: int = 3584,
@@ -288,7 +287,7 @@ class Qwen2VLVisionTransformer(nn.Module):
             temporal_patch_size=temporal_patch_size,
             in_channels=3,
             embed_dim=hidden_size,
-            device=device,
+            device=None,
             dtype=dtype,
             ops=ops,
         )
@@ -296,7 +295,7 @@ class Qwen2VLVisionTransformer(nn.Module):
         head_dim = hidden_size // num_heads
         self.rotary_pos_emb = VisionRotaryEmbedding(head_dim // 2)
 
-        self.blocks = nn.ModuleList([
+        self.blocks = nn.CellList([
             VisionBlock(hidden_size, intermediate_size, num_heads, device, dtype, ops)
             for _ in range(num_layers)
         ])
@@ -305,7 +304,7 @@ class Qwen2VLVisionTransformer(nn.Module):
             dim=output_hidden_size,
             context_dim=hidden_size,
             spatial_merge_size=spatial_merge_size,
-            device=device,
+            device=None,
             dtype=dtype,
             ops=ops,
         )
@@ -320,7 +319,7 @@ class Qwen2VLVisionTransformer(nn.Module):
             llm_grid_h = grid_h // self.spatial_merge_size
             llm_grid_w = grid_w // self.spatial_merge_size
 
-            index = torch.arange(grid_t * llm_grid_h * llm_grid_w).reshape(grid_t, llm_grid_h, llm_grid_w)
+            index = mint.arange(grid_t * llm_grid_h * llm_grid_w).reshape(grid_t, llm_grid_h, llm_grid_w)
 
             pad_h = vit_merger_window_size - llm_grid_h % vit_merger_window_size
             pad_w = vit_merger_window_size - llm_grid_w % vit_merger_window_size
@@ -351,14 +350,14 @@ class Qwen2VLVisionTransformer(nn.Module):
             cu_window_seqlens.extend(cu_seqlens_tmp.tolist())
             window_index_id += (grid_t * llm_grid_h * llm_grid_w).item()
 
-        window_index = torch.cat(window_index, dim=0)
+        window_index = mint.cat(window_index, dim=0)
         return window_index, cu_window_seqlens
 
     def get_position_embeddings(self, grid_thw, device):
         pos_ids = []
 
         for t, h, w in grid_thw:
-            hpos_ids = torch.arange(h, device=device).unsqueeze(1).expand(-1, w)
+            hpos_ids = mint.arange(h).unsqueeze(1).expand((-1, w))
             hpos_ids = hpos_ids.reshape(
                 h // self.spatial_merge_size,
                 self.spatial_merge_size,
@@ -367,7 +366,7 @@ class Qwen2VLVisionTransformer(nn.Module):
             )
             hpos_ids = hpos_ids.permute(0, 2, 1, 3).flatten()
 
-            wpos_ids = torch.arange(w, device=device).unsqueeze(0).expand(h, -1)
+            wpos_ids = mint.arange(w).unsqueeze(0).expand((h, -1))
             wpos_ids = wpos_ids.reshape(
                 h // self.spatial_merge_size,
                 self.spatial_merge_size,
@@ -376,27 +375,27 @@ class Qwen2VLVisionTransformer(nn.Module):
             )
             wpos_ids = wpos_ids.permute(0, 2, 1, 3).flatten()
 
-            pos_ids.append(torch.stack([hpos_ids, wpos_ids], dim=-1).repeat(t, 1))
+            pos_ids.append(mint.stack([hpos_ids, wpos_ids], dim=-1).repeat(t, 1))
 
-        pos_ids = torch.cat(pos_ids, dim=0)
+        pos_ids = mint.cat(pos_ids, dim=0)
         max_grid_size = grid_thw[:, 1:].max()
-        rotary_pos_emb_full = self.rotary_pos_emb(max_grid_size, device)
+        rotary_pos_emb_full = self.rotary_pos_emb(max_grid_size)
         return rotary_pos_emb_full[pos_ids].flatten(1)
 
-    def forward(
+    def construct(
         self,
-        pixel_values: torch.Tensor,
-        image_grid_thw: Optional[torch.Tensor] = None,
-    ) -> torch.Tensor:
-        optimized_attention = optimized_attention_for_device(pixel_values.device, mask=False, small_input=True)
+        pixel_values: mindspore.Tensor,
+        image_grid_thw: Optional[mindspore.Tensor] = None,
+    ) -> mindspore.Tensor:
+        optimized_attention = optimized_attention_for_device(None, mask=False, small_input=True)
 
         hidden_states = self.patch_embed(pixel_values)
 
         window_index, cu_window_seqlens = self.get_window_index(image_grid_thw)
-        cu_window_seqlens = torch.tensor(cu_window_seqlens, device=hidden_states.device)
-        cu_window_seqlens = torch.unique_consecutive(cu_window_seqlens)
+        cu_window_seqlens = mindspore.tensor(cu_window_seqlens)
+        cu_window_seqlens = mint.unique_consecutive(cu_window_seqlens)
 
-        position_embeddings = self.get_position_embeddings(image_grid_thw, hidden_states.device)
+        position_embeddings = self.get_position_embeddings(image_grid_thw, None)
 
         seq_len, _ = hidden_states.size()
         spatial_merge_unit = self.spatial_merge_size * self.spatial_merge_size
@@ -408,12 +407,12 @@ class Qwen2VLVisionTransformer(nn.Module):
         position_embeddings = position_embeddings.reshape(seq_len // spatial_merge_unit, spatial_merge_unit, -1)
         position_embeddings = position_embeddings[window_index, :, :]
         position_embeddings = position_embeddings.reshape(seq_len, -1)
-        position_embeddings = torch.cat((position_embeddings, position_embeddings), dim=-1)
+        position_embeddings = mint.cat((position_embeddings, position_embeddings), dim=-1)
         position_embeddings = (position_embeddings.cos(), position_embeddings.sin())
 
-        cu_seqlens = torch.repeat_interleave(image_grid_thw[:, 1] * image_grid_thw[:, 2], image_grid_thw[:, 0]).cumsum(
+        cu_seqlens = mint.repeat_interleave(image_grid_thw[:, 1] * image_grid_thw[:, 2], image_grid_thw[:, 0]).cumsum(
             dim=0,
-            dtype=torch.int32,
+            dtype=mindspore.int32,
         )
         cu_seqlens = F.pad(cu_seqlens, (1, 0), value=0)
 
