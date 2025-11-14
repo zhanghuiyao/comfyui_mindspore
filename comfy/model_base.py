@@ -45,7 +45,7 @@ import comfy.ldm.flux.model
 # import comfy.ldm.chroma_radiance.model
 # import comfy.ldm.ace.model
 # import comfy.ldm.omnigen.omnigen2
-# import comfy.ldm.qwen_image.model
+import comfy.ldm.qwen_image.model
 
 import comfy.model_management
 import comfy.patcher_extension
@@ -306,7 +306,10 @@ class BaseModel(mindspore.nn.Cell):
                 to_load[k[len(unet_prefix):]] = sd.pop(k)
 
         to_load = self.model_config.process_unet_state_dict(to_load)
-        m, u = self.diffusion_model.load_state_dict(to_load, strict=False)
+        prefix = "diffusion_model."
+        to_load = {f"{prefix}{k}": v for k, v in to_load.items()}
+        # m, u = self.diffusion_model.load_state_dict(to_load, strict=False)
+        m, u = mindspore.load_param_into_net(self.diffusion_model, to_load)
         if len(m) > 0:
             logging.warning("unet missing: {}".format(m))
 
@@ -1458,34 +1461,34 @@ class Flux(BaseModel):
 #             out['ref_latents'] = list([1, 16, sum(map(lambda a: math.prod(a.shape), ref_latents)) // 16])
 #         return out
 
-# class QwenImage(BaseModel):
-#     def __init__(self, model_config, model_type=ModelType.FLUX, device=None):
-#         super().__init__(model_config, model_type, device=device, unet_model=comfy.ldm.qwen_image.model.QwenImageTransformer2DModel)
-#         self.memory_usage_factor_conds = ("ref_latents",)
+class QwenImage(BaseModel):
+    def __init__(self, model_config, model_type=ModelType.FLUX, device=None):
+        super().__init__(model_config, model_type, device=device, unet_model=comfy.ldm.qwen_image.model.QwenImageTransformer2DModel)
+        self.memory_usage_factor_conds = ("ref_latents",)
 
-#     def extra_conds(self, **kwargs):
-#         out = super().extra_conds(**kwargs)
-#         cross_attn = kwargs.get("cross_attn", None)
-#         if cross_attn is not None:
-#             out['c_crossattn'] = comfy.conds.CONDRegular(cross_attn)
-#         ref_latents = kwargs.get("reference_latents", None)
-#         if ref_latents is not None:
-#             latents = []
-#             for lat in ref_latents:
-#                 latents.append(self.process_latent_in(lat))
-#             out['ref_latents'] = comfy.conds.CONDList(latents)
+    def extra_conds(self, **kwargs):
+        out = super().extra_conds(**kwargs)
+        cross_attn = kwargs.get("cross_attn", None)
+        if cross_attn is not None:
+            out['c_crossattn'] = comfy.conds.CONDRegular(cross_attn)
+        ref_latents = kwargs.get("reference_latents", None)
+        if ref_latents is not None:
+            latents = []
+            for lat in ref_latents:
+                latents.append(self.process_latent_in(lat))
+            out['ref_latents'] = comfy.conds.CONDList(latents)
 
-#             ref_latents_method = kwargs.get("reference_latents_method", None)
-#             if ref_latents_method is not None:
-#                 out['ref_latents_method'] = comfy.conds.CONDConstant(ref_latents_method)
-#         return out
+            ref_latents_method = kwargs.get("reference_latents_method", None)
+            if ref_latents_method is not None:
+                out['ref_latents_method'] = comfy.conds.CONDConstant(ref_latents_method)
+        return out
 
-#     def extra_conds_shapes(self, **kwargs):
-#         out = {}
-#         ref_latents = kwargs.get("reference_latents", None)
-#         if ref_latents is not None:
-#             out['ref_latents'] = list([1, 16, sum(map(lambda a: math.prod(a.shape), ref_latents)) // 16])
-#         return out
+    def extra_conds_shapes(self, **kwargs):
+        out = {}
+        ref_latents = kwargs.get("reference_latents", None)
+        if ref_latents is not None:
+            out['ref_latents'] = list([1, 16, sum(map(lambda a: math.prod(a.shape), ref_latents)) // 16])
+        return out
 
 # class HunyuanImage21(BaseModel):
 #     def __init__(self, model_config, model_type=ModelType.FLOW, device=None):

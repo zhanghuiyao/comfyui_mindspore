@@ -57,5 +57,4 @@ python main.py --listen 0.0.0.0 --port 9001
 | models   | image size | infer_steps  | time cost |
 |:-------:|:-------:|:-------:|:-------:|
 | flux | 512*512 | 20 | ~6s |
-
-*note: loading time cost ~360s*
+| qwen_image | 512*512 | 20 | ~13s

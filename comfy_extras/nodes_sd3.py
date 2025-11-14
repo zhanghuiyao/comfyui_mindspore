@@ -2,7 +2,7 @@ import folder_paths
 import comfy.sd
 import comfy.model_management
 import nodes
-import torch
+from mindspore import mint
 from typing_extensions import override
 from comfy_api.latest import ComfyExtension, io
 from comfy_extras.nodes_slg import SkipLayerGuidanceDiT
@@ -54,7 +54,7 @@ class EmptySD3LatentImage(io.ComfyNode):
 
     @classmethod
     def execute(cls, width, height, batch_size=1) -> io.NodeOutput:
-        latent = torch.zeros([batch_size, 16, height // 8, width // 8], device=comfy.model_management.intermediate_device())
+        latent = mint.zeros([batch_size, 16, height // 8, width // 8])
         return io.NodeOutput({"samples":latent})
 
     generate = execute  # TODO: remove

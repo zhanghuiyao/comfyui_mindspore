@@ -88,7 +88,7 @@ class SDClipModel(mindspore.nn.Cell, ClipTokenWeightEncoder):
         "hidden",
         "all"
     ]
-    def __init__(self, max_length=77,
+    def __init__(self, device=None, max_length=77,
                  freeze=True, layer="last", layer_idx=None, textmodel_json_config=None, dtype=None, model_class=comfy.clip_model.CLIPTextModel,
                  special_tokens={"start": 49406, "end": 49407, "pad": 49407}, layer_norm_hidden_state=True, enable_attention_masks=False, zero_out_masked=False,
                  return_projected_pooled=True, return_attention_masks=False, model_options={}):  # clip-vit-base-patch32
@@ -122,7 +122,7 @@ class SDClipModel(mindspore.nn.Cell, ClipTokenWeightEncoder):
                 operations = comfy.ops.manual_cast
 
         self.operations = operations
-        self.transformer = model_class(config, dtype, self.operations)
+        self.transformer = model_class(config, dtype, device, self.operations)
         if scaled_fp8 is not None:
             # self.transformer.scaled_fp8 = mindspore.Parameter(mindspore.tensor([], dtype=scaled_fp8))
             raise NotImplementedError
@@ -295,7 +295,8 @@ class SDClipModel(mindspore.nn.Cell, ClipTokenWeightEncoder):
         return self(tokens)
 
     def load_sd(self, sd):
-        return self.transformer.load_state_dict(sd, strict=False)
+        # return self.transformer.load_state_dict(sd, strict=False)
+        return mindspore.load_param_into_net(self.transformer, sd, strict_load=False)
 
 def parse_parentheses(string):
     result = []
@@ -697,4 +698,5 @@ class SD1ClipModel(mindspore.nn.Cell):
         return out
 
     def load_sd(self, sd):
+        sd = {f"{self.clip}.transformer.{k}": v for k, v in sd.items()}
         return getattr(self, self.clip).load_sd(sd)

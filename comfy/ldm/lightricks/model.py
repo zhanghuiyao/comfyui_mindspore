@@ -1,16 +1,17 @@
-import torch
-from torch import nn
+import mindspore
+from mindspore import nn, mint, ops
 import comfy.patcher_extension
 import comfy.ldm.modules.attention
 import comfy.ldm.common_dit
 import math
 from typing import Dict, Optional, Tuple
+from mindspore_patch.utils import dtype_to_max
 
 from .symmetric_patchifier import SymmetricPatchifier, latent_to_pixel_coords
 from comfy.ldm.flux.math import apply_rope1
 
 def get_timestep_embedding(
-    timesteps: torch.Tensor,
+    timesteps: mindspore.Tensor,
     embedding_dim: int,
     flip_sin_to_cos: bool = False,
     downscale_freq_shift: float = 1,
@@ -21,7 +22,7 @@ def get_timestep_embedding(
     This matches the implementation in Denoising Diffusion Probabilistic Models: Create sinusoidal timestep embeddings.
 
     Args
-        timesteps (torch.Tensor):
+        timesteps (mindspore.Tensor):
             a 1-D Tensor of N indices, one per batch element. These may be fractional.
         embedding_dim (int):
             the dimension of the output.
@@ -34,36 +35,36 @@ def get_timestep_embedding(
         max_period (int):
             Controls the maximum frequency of the embeddings
     Returns
-        torch.Tensor: an [N x dim] Tensor of positional embeddings.
+        mindspore.Tensor: an [N x dim] Tensor of positional embeddings.
     """
     assert len(timesteps.shape) == 1, "Timesteps should be a 1d-array"
 
     half_dim = embedding_dim // 2
-    exponent = -math.log(max_period) * torch.arange(
-        start=0, end=half_dim, dtype=torch.float32, device=timesteps.device
+    exponent = -math.log(max_period) * mint.arange(
+        start=0, end=half_dim, dtype=mindspore.float32
     )
     exponent = exponent / (half_dim - downscale_freq_shift)
 
-    emb = torch.exp(exponent)
+    emb = mint.exp(exponent)
     emb = timesteps[:, None].float() * emb[None, :]
 
     # scale embeddings
     emb = scale * emb
 
     # concat sine and cosine embeddings
-    emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=-1)
+    emb = mint.cat([mint.sin(emb), mint.cos(emb)], dim=-1)
 
     # flip sine and cosine embeddings
     if flip_sin_to_cos:
-        emb = torch.cat([emb[:, half_dim:], emb[:, :half_dim]], dim=-1)
+        emb = mint.cat([emb[:, half_dim:], emb[:, :half_dim]], dim=-1)
 
     # zero pad
     if embedding_dim % 2 == 1:
-        emb = torch.nn.functional.pad(emb, (0, 1, 0, 0))
+        emb = mint.nn.functional.pad(emb, (0, 1, 0, 0))
     return emb
 
 
-class TimestepEmbedding(nn.Module):
+class TimestepEmbedding(nn.Cell):
     def __init__(
         self,
         in_channels: int,
@@ -77,27 +78,27 @@ class TimestepEmbedding(nn.Module):
     ):
         super().__init__()
 
-        self.linear_1 = operations.Linear(in_channels, time_embed_dim, sample_proj_bias, dtype=dtype, device=device)
+        self.linear_1 = operations.Linear(in_channels, time_embed_dim, sample_proj_bias, dtype=dtype)
 
         if cond_proj_dim is not None:
-            self.cond_proj = operations.Linear(cond_proj_dim, in_channels, bias=False, dtype=dtype, device=device)
+            self.cond_proj = operations.Linear(cond_proj_dim, in_channels, bias=False, dtype=dtype)
         else:
             self.cond_proj = None
 
-        self.act = nn.SiLU()
+        self.act = mint.nn.SiLU()
 
         if out_dim is not None:
             time_embed_dim_out = out_dim
         else:
             time_embed_dim_out = time_embed_dim
-        self.linear_2 = operations.Linear(time_embed_dim, time_embed_dim_out, sample_proj_bias, dtype=dtype, device=device)
+        self.linear_2 = operations.Linear(time_embed_dim, time_embed_dim_out, sample_proj_bias, dtype=dtype)
 
         if post_act_fn is None:
             self.post_act = None
         # else:
         #     self.post_act = get_activation(post_act_fn)
 
-    def forward(self, sample, condition=None):
+    def construct(self, sample, condition=None):
         if condition is not None:
             sample = sample + self.cond_proj(condition)
         sample = self.linear_1(sample)
@@ -112,7 +113,7 @@ class TimestepEmbedding(nn.Module):
         return sample
 
 
-class Timesteps(nn.Module):
+class Timesteps(nn.Cell):
     def __init__(self, num_channels: int, flip_sin_to_cos: bool, downscale_freq_shift: float, scale: int = 1):
         super().__init__()
         self.num_channels = num_channels
@@ -120,7 +121,7 @@ class Timesteps(nn.Module):
         self.downscale_freq_shift = downscale_freq_shift
         self.scale = scale
 
-    def forward(self, timesteps):
+    def construct(self, timesteps):
         t_emb = get_timestep_embedding(
             timesteps,
             self.num_channels,
@@ -131,7 +132,7 @@ class Timesteps(nn.Module):
         return t_emb
 
 
-class PixArtAlphaCombinedTimestepSizeEmbeddings(nn.Module):
+class PixArtAlphaCombinedTimestepSizeEmbeddings(nn.Cell):
     """
     For PixArt-Alpha.
 
@@ -146,13 +147,13 @@ class PixArtAlphaCombinedTimestepSizeEmbeddings(nn.Module):
         self.time_proj = Timesteps(num_channels=256, flip_sin_to_cos=True, downscale_freq_shift=0)
         self.timestep_embedder = TimestepEmbedding(in_channels=256, time_embed_dim=embedding_dim, dtype=dtype, device=device, operations=operations)
 
-    def forward(self, timestep, resolution, aspect_ratio, batch_size, hidden_dtype):
+    def construct(self, timestep, resolution, aspect_ratio, batch_size, hidden_dtype):
         timesteps_proj = self.time_proj(timestep)
         timesteps_emb = self.timestep_embedder(timesteps_proj.to(dtype=hidden_dtype))  # (N, D)
         return timesteps_emb
 
 
-class AdaLayerNormSingle(nn.Module):
+class AdaLayerNormSingle(nn.Cell):
     r"""
     Norm layer adaptive layer norm single (adaLN-single).
 
@@ -170,22 +171,22 @@ class AdaLayerNormSingle(nn.Module):
             embedding_dim, size_emb_dim=embedding_dim // 3, use_additional_conditions=use_additional_conditions, dtype=dtype, device=device, operations=operations
         )
 
-        self.silu = nn.SiLU()
-        self.linear = operations.Linear(embedding_dim, 6 * embedding_dim, bias=True, dtype=dtype, device=device)
+        self.silu = mint.nn.SiLU()
+        self.linear = operations.Linear(embedding_dim, 6 * embedding_dim, bias=True, dtype=dtype)
 
-    def forward(
+    def construct(
         self,
-        timestep: torch.Tensor,
-        added_cond_kwargs: Optional[Dict[str, torch.Tensor]] = None,
+        timestep: mindspore.Tensor,
+        added_cond_kwargs: Optional[Dict[str, mindspore.Tensor]] = None,
         batch_size: Optional[int] = None,
-        hidden_dtype: Optional[torch.dtype] = None,
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        hidden_dtype: Optional[mindspore.Type] = None,
+    ) -> Tuple[mindspore.Tensor, mindspore.Tensor, mindspore.Tensor, mindspore.Tensor, mindspore.Tensor]:
         # No modulation happening here.
         added_cond_kwargs = added_cond_kwargs or {"resolution": None, "aspect_ratio": None}
         embedded_timestep = self.emb(timestep, **added_cond_kwargs, batch_size=batch_size, hidden_dtype=hidden_dtype)
         return self.linear(self.silu(embedded_timestep)), embedded_timestep
 
-class PixArtAlphaTextProjection(nn.Module):
+class PixArtAlphaTextProjection(nn.Cell):
     """
     Projects caption embeddings. Also handles dropout for classifier-free guidance.
 
@@ -196,48 +197,48 @@ class PixArtAlphaTextProjection(nn.Module):
         super().__init__()
         if out_features is None:
             out_features = hidden_size
-        self.linear_1 = operations.Linear(in_features=in_features, out_features=hidden_size, bias=True, dtype=dtype, device=device)
+        self.linear_1 = operations.Linear(in_features=in_features, out_features=hidden_size, bias=True, dtype=dtype)
         if act_fn == "gelu_tanh":
-            self.act_1 = nn.GELU(approximate="tanh")
+            self.act_1 = mint.nn.GELU(approximate="tanh")
         elif act_fn == "silu":
-            self.act_1 = nn.SiLU()
+            self.act_1 = mint.nn.SiLU()
         else:
             raise ValueError(f"Unknown activation function: {act_fn}")
-        self.linear_2 = operations.Linear(in_features=hidden_size, out_features=out_features, bias=True, dtype=dtype, device=device)
+        self.linear_2 = operations.Linear(in_features=hidden_size, out_features=out_features, bias=True, dtype=dtype)
 
-    def forward(self, caption):
+    def construct(self, caption):
         hidden_states = self.linear_1(caption)
         hidden_states = self.act_1(hidden_states)
         hidden_states = self.linear_2(hidden_states)
         return hidden_states
 
 
-class GELU_approx(nn.Module):
+class GELU_approx(nn.Cell):
     def __init__(self, dim_in, dim_out, dtype=None, device=None, operations=None):
         super().__init__()
-        self.proj = operations.Linear(dim_in, dim_out, dtype=dtype, device=device)
+        self.proj = operations.Linear(dim_in, dim_out, dtype=dtype)
 
-    def forward(self, x):
-        return torch.nn.functional.gelu(self.proj(x), approximate="tanh")
+    def construct(self, x):
+        return mint.nn.functional.gelu(self.proj(x), approximate="tanh")
 
 
-class FeedForward(nn.Module):
+class FeedForward(nn.Cell):
     def __init__(self, dim, dim_out, mult=4, glu=False, dropout=0., dtype=None, device=None, operations=None):
         super().__init__()
         inner_dim = int(dim * mult)
         project_in = GELU_approx(dim, inner_dim, dtype=dtype, device=device, operations=operations)
 
-        self.net = nn.Sequential(
+        self.net = nn.SequentialCell(
             project_in,
-            nn.Dropout(dropout),
-            operations.Linear(inner_dim, dim_out, dtype=dtype, device=device)
+            mint.nn.Dropout(dropout),
+            operations.Linear(inner_dim, dim_out, dtype=dtype)
         )
 
-    def forward(self, x):
+    def construct(self, x):
         return self.net(x)
 
 
-class CrossAttention(nn.Module):
+class CrossAttention(nn.Cell):
     def __init__(self, query_dim, context_dim=None, heads=8, dim_head=64, dropout=0., attn_precision=None, dtype=None, device=None, operations=None):
         super().__init__()
         inner_dim = dim_head * heads
@@ -247,16 +248,16 @@ class CrossAttention(nn.Module):
         self.heads = heads
         self.dim_head = dim_head
 
-        self.q_norm = operations.RMSNorm(inner_dim, eps=1e-5, dtype=dtype, device=device)
-        self.k_norm = operations.RMSNorm(inner_dim, eps=1e-5, dtype=dtype, device=device)
+        self.q_norm = operations.RMSNorm(inner_dim, eps=1e-5, dtype=dtype)
+        self.k_norm = operations.RMSNorm(inner_dim, eps=1e-5, dtype=dtype)
 
-        self.to_q = operations.Linear(query_dim, inner_dim, bias=True, dtype=dtype, device=device)
-        self.to_k = operations.Linear(context_dim, inner_dim, bias=True, dtype=dtype, device=device)
-        self.to_v = operations.Linear(context_dim, inner_dim, bias=True, dtype=dtype, device=device)
+        self.to_q = operations.Linear(query_dim, inner_dim, bias=True, dtype=dtype)
+        self.to_k = operations.Linear(context_dim, inner_dim, bias=True, dtype=dtype)
+        self.to_v = operations.Linear(context_dim, inner_dim, bias=True, dtype=dtype)
 
-        self.to_out = nn.Sequential(operations.Linear(inner_dim, query_dim, dtype=dtype, device=device), nn.Dropout(dropout))
+        self.to_out = nn.SequentialCell(operations.Linear(inner_dim, query_dim, dtype=dtype), mint.nn.Dropout(dropout))
 
-    def forward(self, x, context=None, mask=None, pe=None, transformer_options={}):
+    def construct(self, x, context=None, mask=None, pe=None, transformer_options={}):
         q = self.to_q(x)
         context = x if context is None else context
         k = self.to_k(context)
@@ -276,7 +277,7 @@ class CrossAttention(nn.Module):
         return self.to_out(out)
 
 
-class BasicTransformerBlock(nn.Module):
+class BasicTransformerBlock(nn.Cell):
     def __init__(self, dim, n_heads, d_head, context_dim=None, attn_precision=None, dtype=None, device=None, operations=None):
         super().__init__()
 
@@ -286,27 +287,27 @@ class BasicTransformerBlock(nn.Module):
 
         self.attn2 = CrossAttention(query_dim=dim, context_dim=context_dim, heads=n_heads, dim_head=d_head, attn_precision=self.attn_precision, dtype=dtype, device=device, operations=operations)
 
-        self.scale_shift_table = nn.Parameter(torch.empty(6, dim, device=device, dtype=dtype))
+        self.scale_shift_table = mindspore.Parameter(mint.empty(6, dim, dtype=dtype))
 
-    def forward(self, x, context=None, attention_mask=None, timestep=None, pe=None, transformer_options={}):
-        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (self.scale_shift_table[None, None].to(device=x.device, dtype=x.dtype) + timestep.reshape(x.shape[0], timestep.shape[1], self.scale_shift_table.shape[0], -1)).unbind(dim=2)
+    def construct(self, x, context=None, attention_mask=None, timestep=None, pe=None, transformer_options={}):
+        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = (self.scale_shift_table[None, None].to(dtype=x.dtype) + timestep.reshape(x.shape[0], timestep.shape[1], self.scale_shift_table.shape[0], -1)).unbind(dim=2)
 
         attn1_input = comfy.ldm.common_dit.rms_norm(x)
-        attn1_input = torch.addcmul(attn1_input, attn1_input, scale_msa).add_(shift_msa)
+        attn1_input = ops.addcmul(attn1_input, attn1_input, scale_msa).add_(shift_msa)
         attn1_input = self.attn1(attn1_input, pe=pe, transformer_options=transformer_options)
-        x.addcmul_(attn1_input, gate_msa)
+        x = x.addcmul(attn1_input, gate_msa)
         del attn1_input
 
         x += self.attn2(x, context=context, mask=attention_mask, transformer_options=transformer_options)
 
         y = comfy.ldm.common_dit.rms_norm(x)
-        y = torch.addcmul(y, y, scale_mlp).add_(shift_mlp)
-        x.addcmul_(self.ff(y), gate_mlp)
+        y = ops.addcmul(y, y, scale_mlp).add_(shift_mlp)
+        x = x.addcmul(self.ff(y), gate_mlp)
 
         return x
 
 def get_fractional_positions(indices_grid, max_pos):
-    fractional_positions = torch.stack(
+    fractional_positions = mint.stack(
         [
             indices_grid[:, i] / max_pos[i]
             for i in range(3)
@@ -317,12 +318,11 @@ def get_fractional_positions(indices_grid, max_pos):
 
 
 def precompute_freqs_cis(indices_grid, dim, out_dtype, theta=10000.0, max_pos=[20, 2048, 2048]):
-    dtype = torch.float32
-    device = indices_grid.device
+    dtype = mindspore.float32
 
     # Get fractional positions and compute frequency indices
     fractional_positions = get_fractional_positions(indices_grid, max_pos)
-    indices = theta ** torch.linspace(0, 1, dim // 6, device=device, dtype=dtype) * math.pi / 2
+    indices = theta ** mint.linspace(0, 1, dim // 6, dtype=dtype) * math.pi / 2
 
     # Compute frequencies and apply cos/sin
     freqs = (indices * (fractional_positions.unsqueeze(-1) * 2 - 1)).transpose(-1, -2).flatten(2)
@@ -332,23 +332,23 @@ def precompute_freqs_cis(indices_grid, dim, out_dtype, theta=10000.0, max_pos=[2
     # Pad if dim is not divisible by 6
     if dim % 6 != 0:
         padding_size = dim % 6
-        cos_vals = torch.cat([torch.ones_like(cos_vals[:, :, :padding_size]), cos_vals], dim=-1)
-        sin_vals = torch.cat([torch.zeros_like(sin_vals[:, :, :padding_size]), sin_vals], dim=-1)
+        cos_vals = mint.cat([mint.ones_like(cos_vals[:, :, :padding_size]), cos_vals], dim=-1)
+        sin_vals = mint.cat([mint.zeros_like(sin_vals[:, :, :padding_size]), sin_vals], dim=-1)
 
     # Reshape and extract one value per pair (since repeat_interleave duplicates each value)
     cos_vals = cos_vals.reshape(*cos_vals.shape[:2], -1, 2)[..., 0].to(out_dtype)  # [B, N, dim//2]
     sin_vals = sin_vals.reshape(*sin_vals.shape[:2], -1, 2)[..., 0].to(out_dtype)  # [B, N, dim//2]
 
     # Build rotation matrix [[cos, -sin], [sin, cos]] and add heads dimension
-    freqs_cis = torch.stack([
-        torch.stack([cos_vals, -sin_vals], dim=-1),
-        torch.stack([sin_vals, cos_vals], dim=-1)
+    freqs_cis = mint.stack([
+        mint.stack([cos_vals, -sin_vals], dim=-1),
+        mint.stack([sin_vals, cos_vals], dim=-1)
     ], dim=-2).unsqueeze(1)  # [B, 1, N, dim//2, 2, 2]
 
     return freqs_cis
 
 
-class LTXVModel(torch.nn.Module):
+class LTXVModel(mindspore.nn.Cell):
     def __init__(self,
                  in_channels=128,
                  cross_attention_dim=2048,
@@ -372,19 +372,19 @@ class LTXVModel(torch.nn.Module):
         self.inner_dim = num_attention_heads * attention_head_dim
         self.causal_temporal_positioning = causal_temporal_positioning
 
-        self.patchify_proj = operations.Linear(in_channels, self.inner_dim, bias=True, dtype=dtype, device=device)
+        self.patchify_proj = operations.Linear(in_channels, self.inner_dim, bias=True, dtype=dtype)
 
         self.adaln_single = AdaLayerNormSingle(
             self.inner_dim, use_additional_conditions=False, dtype=dtype, device=device, operations=operations
         )
 
-        # self.adaln_single.linear = operations.Linear(self.inner_dim, 4 * self.inner_dim, bias=True, dtype=dtype, device=device)
+        # self.adaln_single.linear = operations.Linear(self.inner_dim, 4 * self.inner_dim, bias=True, dtype=dtype)
 
         self.caption_projection = PixArtAlphaTextProjection(
             in_features=caption_channels, hidden_size=self.inner_dim, dtype=dtype, device=device, operations=operations
         )
 
-        self.transformer_blocks = nn.ModuleList(
+        self.transformer_blocks = nn.CellList(
             [
                 BasicTransformerBlock(
                     self.inner_dim,
@@ -398,13 +398,13 @@ class LTXVModel(torch.nn.Module):
             ]
         )
 
-        self.scale_shift_table = nn.Parameter(torch.empty(2, self.inner_dim, dtype=dtype, device=device))
-        self.norm_out = operations.LayerNorm(self.inner_dim, elementwise_affine=False, eps=1e-6, dtype=dtype, device=device)
-        self.proj_out = operations.Linear(self.inner_dim, self.out_channels, dtype=dtype, device=device)
+        self.scale_shift_table = mindspore.Parameter(mint.empty(2, self.inner_dim, dtype=dtype))
+        self.norm_out = operations.LayerNorm(self.inner_dim, elementwise_affine=False, eps=1e-6, dtype=dtype)
+        self.proj_out = operations.Linear(self.inner_dim, self.out_channels, dtype=dtype)
 
         self.patchifier = SymmetricPatchifier(1)
 
-    def forward(self, x, timestep, context, attention_mask, frame_rate=25, transformer_options={}, keyframe_idxs=None, **kwargs):
+    def construct(self, x, timestep, context, attention_mask, frame_rate=25, transformer_options={}, keyframe_idxs=None, **kwargs):
         return comfy.patcher_extension.WrapperExecutor.new_class_executor(
             self._forward,
             self,
@@ -426,14 +426,14 @@ class LTXVModel(torch.nn.Module):
         if keyframe_idxs is not None:
             pixel_coords[:, :, -keyframe_idxs.shape[2]:] = keyframe_idxs
 
-        fractional_coords = pixel_coords.to(torch.float32)
+        fractional_coords = pixel_coords.to(mindspore.float32)
         fractional_coords[:, 0] = fractional_coords[:, 0] * (1.0 / frame_rate)
 
         x = self.patchify_proj(x)
         timestep = timestep * 1000.0
 
-        if attention_mask is not None and not torch.is_floating_point(attention_mask):
-            attention_mask = (attention_mask - 1).to(x.dtype).reshape((attention_mask.shape[0], 1, -1, attention_mask.shape[-1])) * torch.finfo(x.dtype).max
+        if attention_mask is not None and not ops.is_floating_point(attention_mask):
+            attention_mask = (attention_mask - 1).to(x.dtype).reshape((attention_mask.shape[0], 1, -1, attention_mask.shape[-1])) * dtype_to_max(x.dtype)
 
         pe = precompute_freqs_cis(fractional_coords, dim=self.inner_dim, out_dtype=x.dtype)
 
@@ -480,12 +480,12 @@ class LTXVModel(torch.nn.Module):
 
         # 3. Output
         scale_shift_values = (
-            self.scale_shift_table[None, None].to(device=x.device, dtype=x.dtype) + embedded_timestep[:, :, None]
+            self.scale_shift_table[None, None].to(dtype=x.dtype) + embedded_timestep[:, :, None]
         )
         shift, scale = scale_shift_values[:, :, 0], scale_shift_values[:, :, 1]
         x = self.norm_out(x)
         # Modulation
-        x = torch.addcmul(x, x, scale).add_(shift)
+        x = ops.addcmul(x, x, scale).add_(shift)
         x = self.proj_out(x)
 
         x = self.patchifier.unpatchify(

@@ -2,7 +2,8 @@ from transformers import Qwen2Tokenizer
 from comfy import sd1_clip
 import comfy.text_encoders.llama
 import os
-import torch
+import mindspore
+from mindspore import ops
 import numbers
 
 class Qwen25_7BVLITokenizer(sd1_clip.SDTokenizer):
@@ -48,13 +49,13 @@ class QwenImageTokenizer(sd1_clip.SD1Tokenizer):
 
 
 class Qwen25_7BVLIModel(sd1_clip.SDClipModel):
-    def __init__(self, device="cpu", layer="last", layer_idx=None, dtype=None, attention_mask=True, model_options={}):
-        super().__init__(device=device, layer=layer, layer_idx=layer_idx, textmodel_json_config={}, dtype=dtype, special_tokens={"pad": 151643}, layer_norm_hidden_state=False, model_class=comfy.text_encoders.llama.Qwen25_7BVLI, enable_attention_masks=attention_mask, return_attention_masks=attention_mask, model_options=model_options)
+    def __init__(self, device=None, layer="last", layer_idx=None, dtype=None, attention_mask=True, model_options={}):
+        super().__init__(device=None, layer=layer, layer_idx=layer_idx, textmodel_json_config={}, dtype=dtype, special_tokens={"pad": 151643}, layer_norm_hidden_state=False, model_class=comfy.text_encoders.llama.Qwen25_7BVLI, enable_attention_masks=attention_mask, return_attention_masks=attention_mask, model_options=model_options)
 
 
 class QwenImageTEModel(sd1_clip.SD1ClipModel):
-    def __init__(self, device="cpu", dtype=None, model_options={}):
-        super().__init__(device=device, dtype=dtype, name="qwen25_7b", clip_model=Qwen25_7BVLIModel, model_options=model_options)
+    def __init__(self, device=None, dtype=None, model_options={}):
+        super().__init__(device=None, dtype=dtype, name="qwen25_7b", clip_model=Qwen25_7BVLIModel, model_options=model_options)
 
     def encode_token_weights(self, token_weight_pairs, template_end=-1):
         out, pooled, extra = super().encode_token_weights(token_weight_pairs)
@@ -63,7 +64,7 @@ class QwenImageTEModel(sd1_clip.SD1ClipModel):
         if template_end == -1:
             for i, v in enumerate(tok_pairs):
                 elem = v[0]
-                if not torch.is_tensor(elem):
+                if not mindspore.is_tensor(elem):
                     if isinstance(elem, numbers.Integral):
                         if elem == 151644 and count_im_start < 2:
                             template_end = i
@@ -77,7 +78,7 @@ class QwenImageTEModel(sd1_clip.SD1ClipModel):
         out = out[:, template_end:]
 
         extra["attention_mask"] = extra["attention_mask"][:, template_end:]
-        if extra["attention_mask"].sum() == torch.numel(extra["attention_mask"]):
+        if extra["attention_mask"].sum() == ops.numel(extra["attention_mask"]):
             extra.pop("attention_mask")  # attention mask is useless if no masked elements
 
         return out, pooled, extra
@@ -85,11 +86,11 @@ class QwenImageTEModel(sd1_clip.SD1ClipModel):
 
 def te(dtype_llama=None, llama_scaled_fp8=None):
     class QwenImageTEModel_(QwenImageTEModel):
-        def __init__(self, device="cpu", dtype=None, model_options={}):
+        def __init__(self, device=None, dtype=None, model_options={}):
             if llama_scaled_fp8 is not None and "scaled_fp8" not in model_options:
                 model_options = model_options.copy()
                 model_options["scaled_fp8"] = llama_scaled_fp8
             if dtype_llama is not None:
                 dtype = dtype_llama
-            super().__init__(device=device, dtype=dtype, model_options=model_options)
+            super().__init__(device=None, dtype=dtype, model_options=model_options)
     return QwenImageTEModel_

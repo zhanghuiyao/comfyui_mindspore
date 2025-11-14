@@ -1,5 +1,5 @@
-import torch
-import torch.nn as nn
+import mindspore
+from mindspore import mint, nn
 from dataclasses import dataclass
 from typing import Optional, Any
 import math
@@ -119,14 +119,14 @@ class Gemma3_4B_Config:
     sliding_attention = [False, False, False, False, False, 1024]
     rope_scale = [1.0, 8.0]
 
-class RMSNorm(nn.Module):
+class RMSNorm(nn.Cell):
     def __init__(self, dim: int, eps: float = 1e-5, add=False, device=None, dtype=None):
         super().__init__()
         self.eps = eps
-        self.weight = nn.Parameter(torch.empty(dim, device=device, dtype=dtype))
+        self.weight = mindspore.Parameter(mint.empty(dim, dtype=dtype))
         self.add = add
 
-    def forward(self, x: torch.Tensor):
+    def construct(self, x: mindspore.Tensor):
         w = self.weight
         if self.add:
             w = w + 1.0
@@ -139,7 +139,7 @@ def rotate_half(x):
     """Rotates half the hidden dims of the input."""
     x1 = x[..., : x.shape[-1] // 2]
     x2 = x[..., x.shape[-1] // 2 :]
-    return torch.cat((-x2, x1), dim=-1)
+    return mint.cat((-x2, x1), dim=-1)
 
 
 def precompute_freqs_cis(head_dim, position_ids, theta, rope_scale=None, rope_dims=None, device=None):
@@ -148,7 +148,7 @@ def precompute_freqs_cis(head_dim, position_ids, theta, rope_scale=None, rope_di
 
     out = []
     for index, t in enumerate(theta):
-        theta_numerator = torch.arange(0, head_dim, 2, device=device).float()
+        theta_numerator = mint.arange(0, head_dim, 2).float()
         inv_freq = 1.0 / (t ** (theta_numerator / head_dim))
 
         if rope_scale is not None:
@@ -157,16 +157,16 @@ def precompute_freqs_cis(head_dim, position_ids, theta, rope_scale=None, rope_di
             else:
                 inv_freq /= rope_scale
 
-        inv_freq_expanded = inv_freq[None, :, None].float().expand(position_ids.shape[0], -1, 1)
+        inv_freq_expanded = inv_freq[None, :, None].float().expand((position_ids.shape[0], -1, 1))
         position_ids_expanded = position_ids[:, None, :].float()
         freqs = (inv_freq_expanded.float() @ position_ids_expanded.float()).transpose(1, 2)
-        emb = torch.cat((freqs, freqs), dim=-1)
+        emb = mint.cat((freqs, freqs), dim=-1)
         cos = emb.cos()
         sin = emb.sin()
         if rope_dims is not None and position_ids.shape[0] > 1:
             mrope_section = rope_dims * 2
-            cos = torch.cat([m[i % 3] for i, m in enumerate(cos.split(mrope_section, dim=-1))], dim=-1).unsqueeze(0)
-            sin = torch.cat([m[i % 3] for i, m in enumerate(sin.split(mrope_section, dim=-1))], dim=-1).unsqueeze(0)
+            cos = mint.cat([m[i % 3] for i, m in enumerate(cos.split(mrope_section, dim=-1))], dim=-1).unsqueeze(0)
+            sin = mint.cat([m[i % 3] for i, m in enumerate(sin.split(mrope_section, dim=-1))], dim=-1).unsqueeze(0)
         else:
             cos = cos.unsqueeze(1)
             sin = sin.unsqueeze(1)
@@ -187,7 +187,7 @@ def apply_rope(xq, xk, freqs_cis):
     return q_embed.to(org_dtype), k_embed.to(org_dtype)
 
 
-class Attention(nn.Module):
+class Attention(nn.Cell):
     def __init__(self, config: Llama2Config, device=None, dtype=None, ops: Any = None):
         super().__init__()
         self.num_heads = config.num_attention_heads
@@ -198,24 +198,24 @@ class Attention(nn.Module):
         self.inner_size = self.num_heads * self.head_dim
 
         ops = ops or nn
-        self.q_proj = ops.Linear(config.hidden_size, self.inner_size, bias=config.qkv_bias, device=device, dtype=dtype)
-        self.k_proj = ops.Linear(config.hidden_size, self.num_kv_heads * self.head_dim, bias=config.qkv_bias, device=device, dtype=dtype)
-        self.v_proj = ops.Linear(config.hidden_size, self.num_kv_heads * self.head_dim, bias=config.qkv_bias, device=device, dtype=dtype)
-        self.o_proj = ops.Linear(self.inner_size, config.hidden_size, bias=False, device=device, dtype=dtype)
+        self.q_proj = ops.Linear(config.hidden_size, self.inner_size, bias=config.qkv_bias, dtype=dtype)
+        self.k_proj = ops.Linear(config.hidden_size, self.num_kv_heads * self.head_dim, bias=config.qkv_bias, dtype=dtype)
+        self.v_proj = ops.Linear(config.hidden_size, self.num_kv_heads * self.head_dim, bias=config.qkv_bias, dtype=dtype)
+        self.o_proj = ops.Linear(self.inner_size, config.hidden_size, bias=False, dtype=dtype)
 
         self.q_norm = None
         self.k_norm = None
 
         if config.q_norm == "gemma3":
-            self.q_norm = RMSNorm(self.head_dim, eps=config.rms_norm_eps, add=config.rms_norm_add, device=device, dtype=dtype)
+            self.q_norm = RMSNorm(self.head_dim, eps=config.rms_norm_eps, add=config.rms_norm_add, device=None, dtype=dtype)
         if config.k_norm == "gemma3":
-            self.k_norm = RMSNorm(self.head_dim, eps=config.rms_norm_eps, add=config.rms_norm_add, device=device, dtype=dtype)
+            self.k_norm = RMSNorm(self.head_dim, eps=config.rms_norm_eps, add=config.rms_norm_add, device=None, dtype=dtype)
 
-    def forward(
+    def construct(
         self,
-        hidden_states: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        freqs_cis: Optional[torch.Tensor] = None,
+        hidden_states: mindspore.Tensor,
+        attention_mask: Optional[mindspore.Tensor] = None,
+        freqs_cis: Optional[mindspore.Tensor] = None,
         optimized_attention=None,
     ):
         batch_size, seq_length, _ = hidden_states.shape
@@ -240,34 +240,34 @@ class Attention(nn.Module):
         output = optimized_attention(xq, xk, xv, self.num_heads, mask=attention_mask, skip_reshape=True)
         return self.o_proj(output)
 
-class MLP(nn.Module):
+class MLP(nn.Cell):
     def __init__(self, config: Llama2Config, device=None, dtype=None, ops: Any = None):
         super().__init__()
         ops = ops or nn
-        self.gate_proj = ops.Linear(config.hidden_size, config.intermediate_size, bias=False, device=device, dtype=dtype)
-        self.up_proj = ops.Linear(config.hidden_size, config.intermediate_size, bias=False, device=device, dtype=dtype)
-        self.down_proj = ops.Linear(config.intermediate_size, config.hidden_size, bias=False, device=device, dtype=dtype)
+        self.gate_proj = ops.Linear(config.hidden_size, config.intermediate_size, bias=False, dtype=dtype)
+        self.up_proj = ops.Linear(config.hidden_size, config.intermediate_size, bias=False, dtype=dtype)
+        self.down_proj = ops.Linear(config.intermediate_size, config.hidden_size, bias=False, dtype=dtype)
         if config.mlp_activation == "silu":
-            self.activation = torch.nn.functional.silu
+            self.activation = mint.nn.functional.silu
         elif config.mlp_activation == "gelu_pytorch_tanh":
-            self.activation = lambda a: torch.nn.functional.gelu(a, approximate="tanh")
+            self.activation = lambda a: mint.nn.functional.gelu(a, approximate="tanh")
 
-    def forward(self, x):
+    def construct(self, x):
         return self.down_proj(self.activation(self.gate_proj(x)) * self.up_proj(x))
 
-class TransformerBlock(nn.Module):
+class TransformerBlock(nn.Cell):
     def __init__(self, config: Llama2Config, index, device=None, dtype=None, ops: Any = None):
         super().__init__()
-        self.self_attn = Attention(config, device=device, dtype=dtype, ops=ops)
-        self.mlp = MLP(config, device=device, dtype=dtype, ops=ops)
-        self.input_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps, device=device, dtype=dtype)
-        self.post_attention_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps, device=device, dtype=dtype)
+        self.self_attn = Attention(config, device=None, dtype=dtype, ops=ops)
+        self.mlp = MLP(config, device=None, dtype=dtype, ops=ops)
+        self.input_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps, device=None, dtype=dtype)
+        self.post_attention_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps, device=None, dtype=dtype)
 
-    def forward(
+    def construct(
         self,
-        x: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        freqs_cis: Optional[torch.Tensor] = None,
+        x: mindspore.Tensor,
+        attention_mask: Optional[mindspore.Tensor] = None,
+        freqs_cis: Optional[mindspore.Tensor] = None,
         optimized_attention=None,
     ):
         # Self Attention
@@ -289,15 +289,15 @@ class TransformerBlock(nn.Module):
 
         return x
 
-class TransformerBlockGemma2(nn.Module):
+class TransformerBlockGemma2(nn.Cell):
     def __init__(self, config: Llama2Config, index, device=None, dtype=None, ops: Any = None):
         super().__init__()
-        self.self_attn = Attention(config, device=device, dtype=dtype, ops=ops)
-        self.mlp = MLP(config, device=device, dtype=dtype, ops=ops)
-        self.input_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps, add=config.rms_norm_add, device=device, dtype=dtype)
-        self.post_attention_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps, add=config.rms_norm_add, device=device, dtype=dtype)
-        self.pre_feedforward_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps, add=config.rms_norm_add, device=device, dtype=dtype)
-        self.post_feedforward_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps, add=config.rms_norm_add, device=device, dtype=dtype)
+        self.self_attn = Attention(config, device=None, dtype=dtype, ops=ops)
+        self.mlp = MLP(config, device=None, dtype=dtype, ops=ops)
+        self.input_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps, add=config.rms_norm_add, device=None, dtype=dtype)
+        self.post_attention_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps, add=config.rms_norm_add, device=None, dtype=dtype)
+        self.pre_feedforward_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps, add=config.rms_norm_add, device=None, dtype=dtype)
+        self.post_feedforward_layernorm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps, add=config.rms_norm_add, device=None, dtype=dtype)
 
         if config.sliding_attention is not None:  # TODO: implement. (Not that necessary since models are trained on less than 1024 tokens)
             self.sliding_attention = config.sliding_attention[index % len(config.sliding_attention)]
@@ -306,11 +306,11 @@ class TransformerBlockGemma2(nn.Module):
 
         self.transformer_type = config.transformer_type
 
-    def forward(
+    def construct(
         self,
-        x: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
-        freqs_cis: Optional[torch.Tensor] = None,
+        x: mindspore.Tensor,
+        attention_mask: Optional[mindspore.Tensor] = None,
+        freqs_cis: Optional[mindspore.Tensor] = None,
         optimized_attention=None,
     ):
         if self.transformer_type == 'gemma3':
@@ -343,7 +343,7 @@ class TransformerBlockGemma2(nn.Module):
 
         return x
 
-class Llama2_(nn.Module):
+class Llama2_(nn.Cell):
     def __init__(self, config, device=None, dtype=None, ops=None):
         super().__init__()
         self.config = config
@@ -352,7 +352,6 @@ class Llama2_(nn.Module):
         self.embed_tokens = ops.Embedding(
             config.vocab_size,
             config.hidden_size,
-            device=device,
             dtype=dtype
         )
         if self.config.transformer_type == "gemma2" or self.config.transformer_type == "gemma3":
@@ -362,14 +361,14 @@ class Llama2_(nn.Module):
             transformer = TransformerBlock
             self.normalize_in = False
 
-        self.layers = nn.ModuleList([
-            transformer(config, index=i, device=device, dtype=dtype, ops=ops)
+        self.layers = nn.CellList([
+            transformer(config, index=i, device=None, dtype=dtype, ops=ops)
             for i in range(config.num_hidden_layers)
         ])
-        self.norm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps, add=config.rms_norm_add, device=device, dtype=dtype)
-        # self.lm_head = ops.Linear(config.hidden_size, config.vocab_size, bias=False, device=device, dtype=dtype)
+        self.norm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps, add=config.rms_norm_add, device=None, dtype=dtype)
+        # self.lm_head = ops.Linear(config.hidden_size, config.vocab_size, bias=False, device=None, dtype=dtype)
 
-    def forward(self, x, attention_mask=None, embeds=None, num_tokens=None, intermediate_output=None, final_layer_norm_intermediate=True, dtype=None, position_ids=None, embeds_info=[]):
+    def construct(self, x, attention_mask=None, embeds=None, num_tokens=None, intermediate_output=None, final_layer_norm_intermediate=True, dtype=None, position_ids=None, embeds_info=[]):
         if embeds is not None:
             x = embeds
         else:
@@ -379,26 +378,26 @@ class Llama2_(nn.Module):
             x *= self.config.hidden_size ** 0.5
 
         if position_ids is None:
-            position_ids = torch.arange(0, x.shape[1], device=x.device).unsqueeze(0)
+            position_ids = mint.arange(0, x.shape[1]).unsqueeze(0)
 
         freqs_cis = precompute_freqs_cis(self.config.head_dim,
                                          position_ids,
                                          self.config.rope_theta,
                                          self.config.rope_scale,
                                          self.config.rope_dims,
-                                         device=x.device)
+                                         None)
 
         mask = None
         if attention_mask is not None:
-            mask = 1.0 - attention_mask.to(x.dtype).reshape((attention_mask.shape[0], 1, -1, attention_mask.shape[-1])).expand(attention_mask.shape[0], 1, attention_mask.shape[-1], attention_mask.shape[-1])
-            mask = mask.masked_fill(mask.to(torch.bool), float("-inf"))
+            mask = 1.0 - attention_mask.to(x.dtype).reshape((attention_mask.shape[0], 1, -1, attention_mask.shape[-1])).expand((attention_mask.shape[0], 1, attention_mask.shape[-1], attention_mask.shape[-1]))
+            mask = mask.masked_fill(mask.to(mindspore.bool), float("-inf"))
 
-        causal_mask = torch.empty(x.shape[1], x.shape[1], dtype=x.dtype, device=x.device).fill_(float("-inf")).triu_(1)
+        causal_mask = mint.triu(mint.empty(x.shape[1], x.shape[1], dtype=x.dtype).fill_(float("-inf")), 1)
         if mask is not None:
             mask += causal_mask
         else:
             mask = causal_mask
-        optimized_attention = optimized_attention_for_device(x.device, mask=mask is not None, small_input=True)
+        optimized_attention = optimized_attention_for_device(None, mask=mask is not None, small_input=True)
 
         intermediate = None
         all_intermediate = None
@@ -426,7 +425,7 @@ class Llama2_(nn.Module):
             all_intermediate.append(x.unsqueeze(1).clone())
 
         if all_intermediate is not None:
-            intermediate = torch.cat(all_intermediate, dim=1)
+            intermediate = mint.cat(all_intermediate, dim=1)
 
         if intermediate is not None and final_layer_norm_intermediate:
             intermediate = self.norm(intermediate)
@@ -440,45 +439,45 @@ class BaseLlama:
     def set_input_embeddings(self, embeddings):
         self.model.embed_tokens = embeddings
 
-    def forward(self, input_ids, *args, **kwargs):
+    def construct(self, input_ids, *args, **kwargs):
         return self.model(input_ids, *args, **kwargs)
 
 
-class Llama2(BaseLlama, torch.nn.Module):
+class Llama2(BaseLlama, mindspore.nn.Cell):
     def __init__(self, config_dict, dtype, device, operations):
         super().__init__()
         config = Llama2Config(**config_dict)
         self.num_layers = config.num_hidden_layers
 
-        self.model = Llama2_(config, device=device, dtype=dtype, ops=operations)
+        self.model = Llama2_(config, device=None, dtype=dtype, ops=operations)
         self.dtype = dtype
 
-class Qwen25_3B(BaseLlama, torch.nn.Module):
+class Qwen25_3B(BaseLlama, mindspore.nn.Cell):
     def __init__(self, config_dict, dtype, device, operations):
         super().__init__()
         config = Qwen25_3BConfig(**config_dict)
         self.num_layers = config.num_hidden_layers
 
-        self.model = Llama2_(config, device=device, dtype=dtype, ops=operations)
+        self.model = Llama2_(config, device=None, dtype=dtype, ops=operations)
         self.dtype = dtype
 
-class Qwen25_7BVLI(BaseLlama, torch.nn.Module):
+class Qwen25_7BVLI(BaseLlama, mindspore.nn.Cell):
     def __init__(self, config_dict, dtype, device, operations):
         super().__init__()
         config = Qwen25_7BVLI_Config(**config_dict)
         self.num_layers = config.num_hidden_layers
 
-        self.model = Llama2_(config, device=device, dtype=dtype, ops=operations)
-        self.visual = qwen_vl.Qwen2VLVisionTransformer(hidden_size=1280, output_hidden_size=config.hidden_size, device=device, dtype=dtype, ops=operations)
+        self.model = Llama2_(config, device=None, dtype=dtype, ops=operations)
+        self.visual = qwen_vl.Qwen2VLVisionTransformer(hidden_size=1280, output_hidden_size=config.hidden_size, device=None, dtype=dtype, ops=operations)
         self.dtype = dtype
 
     def preprocess_embed(self, embed, device):
         if embed["type"] == "image":
             image, grid = qwen_vl.process_qwen2vl_images(embed["data"])
-            return self.visual(image.to(device, dtype=torch.float32), grid), grid
+            return self.visual(image.to(dtype=mindspore.float32), grid), grid
         return None, None
 
-    def forward(self, x, attention_mask=None, embeds=None, num_tokens=None, intermediate_output=None, final_layer_norm_intermediate=True, dtype=None, embeds_info=[]):
+    def construct(self, x, attention_mask=None, embeds=None, num_tokens=None, intermediate_output=None, final_layer_norm_intermediate=True, dtype=None, embeds_info=[]):
         grid = None
         position_ids = None
         offset = 0
@@ -487,38 +486,38 @@ class Qwen25_7BVLI(BaseLlama, torch.nn.Module):
                 grid = e.get("extra", None)
                 start = e.get("index")
                 if position_ids is None:
-                    position_ids = torch.zeros((3, embeds.shape[1]), device=embeds.device)
-                    position_ids[:, :start] = torch.arange(0, start, device=embeds.device)
+                    position_ids = mint.zeros((3, embeds.shape[1]))
+                    position_ids[:, :start] = mint.arange(0, start)
                 end = e.get("size") + start
                 len_max = int(grid.max()) // 2
                 start_next = len_max + start
-                position_ids[:, end:] = torch.arange(start_next + offset, start_next + (embeds.shape[1] - end) + offset, device=embeds.device)
+                position_ids[:, end:] = mint.arange(start_next + offset, start_next + (embeds.shape[1] - end) + offset)
                 position_ids[0, start:end] = start + offset
                 max_d = int(grid[0][1]) // 2
-                position_ids[1, start:end] = torch.arange(start + offset, start + max_d + offset, device=embeds.device).unsqueeze(1).repeat(1, math.ceil((end - start) / max_d)).flatten(0)[:end - start]
+                position_ids[1, start:end] = mint.arange(start + offset, start + max_d + offset).unsqueeze(1).repeat(1, math.ceil((end - start) / max_d)).flatten(0)[:end - start]
                 max_d = int(grid[0][2]) // 2
-                position_ids[2, start:end] = torch.arange(start + offset, start + max_d + offset, device=embeds.device).unsqueeze(0).repeat(math.ceil((end - start) / max_d), 1).flatten(0)[:end - start]
+                position_ids[2, start:end] = mint.arange(start + offset, start + max_d + offset).unsqueeze(0).repeat(math.ceil((end - start) / max_d), 1).flatten(0)[:end - start]
                 offset += len_max - (end - start)
 
         if grid is None:
             position_ids = None
 
-        return super().forward(x, attention_mask=attention_mask, embeds=embeds, num_tokens=num_tokens, intermediate_output=intermediate_output, final_layer_norm_intermediate=final_layer_norm_intermediate, dtype=dtype, position_ids=position_ids)
+        return super().construct(x, attention_mask=attention_mask, embeds=embeds, num_tokens=num_tokens, intermediate_output=intermediate_output, final_layer_norm_intermediate=final_layer_norm_intermediate, dtype=dtype, position_ids=position_ids)
 
-class Gemma2_2B(BaseLlama, torch.nn.Module):
+class Gemma2_2B(BaseLlama, mindspore.nn.Cell):
     def __init__(self, config_dict, dtype, device, operations):
         super().__init__()
         config = Gemma2_2B_Config(**config_dict)
         self.num_layers = config.num_hidden_layers
 
-        self.model = Llama2_(config, device=device, dtype=dtype, ops=operations)
+        self.model = Llama2_(config, device=None, dtype=dtype, ops=operations)
         self.dtype = dtype
 
-class Gemma3_4B(BaseLlama, torch.nn.Module):
+class Gemma3_4B(BaseLlama, mindspore.nn.Cell):
     def __init__(self, config_dict, dtype, device, operations):
         super().__init__()
         config = Gemma3_4B_Config(**config_dict)
         self.num_layers = config.num_hidden_layers
 
-        self.model = Llama2_(config, device=device, dtype=dtype, ops=operations)
+        self.model = Llama2_(config, device=None, dtype=dtype, ops=operations)
         self.dtype = dtype
