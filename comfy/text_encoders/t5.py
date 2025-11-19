@@ -228,7 +228,7 @@ class T5Stack(mindspore.nn.Cell):
         return x, intermediate
 
 class T5(mindspore.nn.Cell):
-    def __init__(self, config_dict, dtype, operations):
+    def __init__(self, config_dict, dtype, device, operations):
         super().__init__()
         self.num_layers = config_dict["num_layers"]
         model_dim = config_dict["d_model"]
