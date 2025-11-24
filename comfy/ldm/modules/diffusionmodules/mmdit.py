@@ -1,10 +1,11 @@
 
+
 from functools import partial
 from typing import Dict, Optional, List
 
 import numpy as np
 import mindspore as ms
-from mindspore import mint, ops
+from mindspore import mint, ops, nn
 from ..attention import optimized_attention
 from einops import rearrange, repeat
 from .util import timestep_embedding
@@ -212,7 +213,7 @@ class TimestepEmbedder(mint.nn.Cell):
 
     def __init__(self, hidden_size, frequency_embedding_size=256, dtype=None, operations=None):
         super().__init__()
-        self.mlp = mint.nn.Sequential(
+        self.mlp = nn.Sequential(
             operations.Linear(frequency_embedding_size, hidden_size, bias=True, dtype=dtype),
             mint.nn.SiLU(),
             operations.Linear(hidden_size, hidden_size, bias=True, dtype=dtype),
@@ -232,7 +233,7 @@ class VectorEmbedder(mint.nn.Cell):
 
     def __init__(self, input_dim: int, hidden_size: int, dtype=None, operations=None):
         super().__init__()
-        self.mlp = mint.nn.Sequential(
+        self.mlp = nn.Sequential(
             operations.Linear(input_dim, hidden_size, bias=True, dtype=dtype),
             mint.nn.SiLU(),
             operations.Linear(hidden_size, hidden_size, bias=True, dtype=dtype),
@@ -472,7 +473,7 @@ class DismantledBlock(mint.nn.Cell):
             n_mods = 6 if not pre_only else 2
         else:
             n_mods = 4 if not pre_only else 1
-        self.adaLN_modulation = mint.nn.Sequential(
+        self.adaLN_modulation = nn.Sequential(
             mint.nn.SiLU(), operations.Linear(hidden_size, n_mods * hidden_size, bias=True, dtype=dtype)
         )
         self.pre_only = pre_only
@@ -685,7 +686,7 @@ class FinalLayer(mint.nn.Cell):
             if (total_out_channels is None)
             else operations.Linear(hidden_size, total_out_channels, bias=True, dtype=dtype)
         )
-        self.adaLN_modulation = mint.nn.Sequential(
+        self.adaLN_modulation = nn.Sequential(
             mint.nn.SiLU(), operations.Linear(hidden_size, 2 * hidden_size, bias=True, dtype=dtype)
         )
 
@@ -818,7 +819,7 @@ class MMDiT(mint.nn.Cell):
         self.y_embedder = None
         if adm_in_channels is not None:
             assert isinstance(adm_in_channels, int)
-            self.y_embedder = VectorEmbedder(adm_in_channels, self.hidden_size, dtype=dtype operations=operations)
+            self.y_embedder = VectorEmbedder(adm_in_channels, self.hidden_size, dtype=dtype,operations=operations)
 
         if context_processor_layers is not None:
             self.context_processor = ContextProcessor(context_size, context_processor_layers, dtype=dtype, operations=operations)
@@ -993,7 +994,7 @@ class MMDiT(mint.nn.Cell):
             context = self.context_processor(context)
 
         hw = x.shape[-2:]
-        x = self.x_embedder(x) + comfy.ops.cast_to_input(self.cropped_pos_embed(hwe), x)
+        x = self.x_embedder(x) + comfy.ops.cast_to_input(self.cropped_pos_embed(hw), x)
         c = self.t_embedder(t, dtype=x.dtype)  # (N, D)
         if y is not None and self.y_embedder is not None:
             y = self.y_embedder(y)  # (N, D)
