@@ -545,8 +545,8 @@ class SD3(supported_models_base.BASE):
 
     text_encoder_key_prefix = ["text_encoders."]
 
-    def get_model(self, state_dict, prefix="", device=None):
-        out = model_base.SD3(self, device=device)
+    def get_model(self, state_dict, prefix=""):
+        out = model_base.SD3(self)
         return out
 
     def clip_target(self, state_dict={}):
