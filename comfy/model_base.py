@@ -24,7 +24,7 @@ from comfy.ldm.modules.diffusionmodules.openaimodel import UNetModel, Timestep
 # from comfy.ldm.cascade.stage_b import StageB
 from comfy.ldm.modules.encoders.noise_aug_modules import CLIPEmbeddingNoiseAugmentation
 # from comfy.ldm.modules.diffusionmodules.upscaling import ImageConcatWithNoiseAugmentation
-# from comfy.ldm.modules.diffusionmodules.mmdit import OpenAISignatureMMDITWrapper
+from comfy.ldm.modules.diffusionmodules.mmdit import OpenAISignatureMMDITWrapper
 # import comfy.ldm.genmo.joint_model.asymm_models_joint
 # import comfy.ldm.aura.mmdit
 # import comfy.ldm.pixart.pixartms
