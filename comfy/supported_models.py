@@ -1380,4 +1380,4 @@ class QwenImage(supported_models_base.BASE):
 
 # models += [SVD_img2vid]
 
-models = [Flux, QwenImage]
+models = [Flux, QwenImage, SD3]
