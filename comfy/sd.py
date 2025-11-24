@@ -1270,7 +1270,7 @@ def load_state_dict_guess_config(sd, output_vae=True, output_clip=True, output_c
 
     if output_model:
         inital_load_device = None  #model_management.unet_inital_load_device(parameters, unet_dtype)
-        model = model_config.get_model(sd, diffusion_model_prefix, device=None)
+        model = model_config.get_model(sd, diffusion_model_prefix)
         model.load_model_weights(sd, diffusion_model_prefix)
 
     if output_vae:
