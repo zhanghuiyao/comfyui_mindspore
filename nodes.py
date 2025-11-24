@@ -74,17 +74,17 @@ class CLIPTextEncode(ComfyNodeABC):
         return (clip.encode_from_tokens_scheduled(tokens), )
 
 
-# class ConditioningCombine:
-#     @classmethod
-#     def INPUT_TYPES(s):
-#         return {"required": {"conditioning_1": ("CONDITIONING", ), "conditioning_2": ("CONDITIONING", )}}
-#     RETURN_TYPES = ("CONDITIONING",)
-#     FUNCTION = "combine"
+class ConditioningCombine:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {"conditioning_1": ("CONDITIONING", ), "conditioning_2": ("CONDITIONING", )}}
+    RETURN_TYPES = ("CONDITIONING",)
+    FUNCTION = "combine"
 
-#     CATEGORY = "conditioning"
+    CATEGORY = "conditioning"
 
-#     def combine(self, conditioning_1, conditioning_2):
-#         return (conditioning_1 + conditioning_2, )
+    def combine(self, conditioning_1, conditioning_2):
+        return (conditioning_1 + conditioning_2, )
 
 # class ConditioningAverage :
 #     @classmethod
@@ -235,45 +235,45 @@ class CLIPTextEncode(ComfyNodeABC):
 #                                                                 "mask_strength": strength})
 #         return (c, )
 
-# class ConditioningZeroOut:
-#     @classmethod
-#     def INPUT_TYPES(s):
-#         return {"required": {"conditioning": ("CONDITIONING", )}}
-#     RETURN_TYPES = ("CONDITIONING",)
-#     FUNCTION = "zero_out"
+class ConditioningZeroOut:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {"conditioning": ("CONDITIONING", )}}
+    RETURN_TYPES = ("CONDITIONING",)
+    FUNCTION = "zero_out"
 
-#     CATEGORY = "advanced/conditioning"
+    CATEGORY = "advanced/conditioning"
 
-#     def zero_out(self, conditioning):
-#         c = []
-#         for t in conditioning:
-#             d = t[1].copy()
-#             pooled_output = d.get("pooled_output", None)
-#             if pooled_output is not None:
-#                 d["pooled_output"] = torch.zeros_like(pooled_output)
-#             conditioning_lyrics = d.get("conditioning_lyrics", None)
-#             if conditioning_lyrics is not None:
-#                 d["conditioning_lyrics"] = torch.zeros_like(conditioning_lyrics)
-#             n = [torch.zeros_like(t[0]), d]
-#             c.append(n)
-#         return (c, )
+    def zero_out(self, conditioning):
+        c = []
+        for t in conditioning:
+            d = t[1].copy()
+            pooled_output = d.get("pooled_output", None)
+            if pooled_output is not None:
+                d["pooled_output"] = mint.zeros_like(pooled_output)
+            conditioning_lyrics = d.get("conditioning_lyrics", None)
+            if conditioning_lyrics is not None:
+                d["conditioning_lyrics"] = mint.zeros_like(conditioning_lyrics)
+            n = [mint.zeros_like(t[0]), d]
+            c.append(n)
+        return (c, )
 
-# class ConditioningSetTimestepRange:
-#     @classmethod
-#     def INPUT_TYPES(s):
-#         return {"required": {"conditioning": ("CONDITIONING", ),
-#                              "start": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.001}),
-#                              "end": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.001})
-#                              }}
-#     RETURN_TYPES = ("CONDITIONING",)
-#     FUNCTION = "set_range"
+class ConditioningSetTimestepRange:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {"conditioning": ("CONDITIONING", ),
+                             "start": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.001}),
+                             "end": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.001})
+                             }}
+    RETURN_TYPES = ("CONDITIONING",)
+    FUNCTION = "set_range"
 
-#     CATEGORY = "advanced/conditioning"
+    CATEGORY = "advanced/conditioning"
 
-#     def set_range(self, conditioning, start, end):
-#         c = node_helpers.conditioning_set_values(conditioning, {"start_percent": start,
-#                                                                 "end_percent": end})
-#         return (c, )
+    def set_range(self, conditioning, start, end):
+        c = node_helpers.conditioning_set_values(conditioning, {"start_percent": start,
+                                                                "end_percent": end})
+        return (c, )
 
 class VAEDecode:
     @classmethod
@@ -1965,7 +1965,7 @@ NODE_CLASS_MAPPINGS = {
     # "ImagePadForOutpaint": ImagePadForOutpaint,
     # "EmptyImage": EmptyImage,
     # "ConditioningAverage": ConditioningAverage ,
-    # "ConditioningCombine": ConditioningCombine,
+    "ConditioningCombine": ConditioningCombine,
     # "ConditioningConcat": ConditioningConcat,
     # "ConditioningSetArea": ConditioningSetArea,
     # "ConditioningSetAreaPercentage": ConditioningSetAreaPercentage,
@@ -2004,8 +2004,8 @@ NODE_CLASS_MAPPINGS = {
     # "LoadLatent": LoadLatent,
     # "SaveLatent": SaveLatent,
 
-    # "ConditioningZeroOut": ConditioningZeroOut,
-    # "ConditioningSetTimestepRange": ConditioningSetTimestepRange,
+    "ConditioningZeroOut": ConditioningZeroOut,
+    "ConditioningSetTimestepRange": ConditioningSetTimestepRange,
     # "LoraLoaderModelOnly": LoraLoaderModelOnly,
 }
 
