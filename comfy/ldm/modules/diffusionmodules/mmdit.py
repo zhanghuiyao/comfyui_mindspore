@@ -1,9 +1,10 @@
+
 from functools import partial
 from typing import Dict, Optional, List
 
 import numpy as np
-import torch
-import torch.nn as nn
+import mindspore as ms
+from mindspore import mint, ops
 from ..attention import optimized_attention
 from einops import rearrange, repeat
 from .util import timestep_embedding
@@ -15,7 +16,7 @@ def default(x, y):
         return x
     return y
 
-class Mlp(nn.Module):
+class Mlp(mint.nn.Cell):
     """ MLP as used in Vision Transformer, MLP-Mixer and related networks
     """
     def __init__(
@@ -23,7 +24,7 @@ class Mlp(nn.Module):
             in_features,
             hidden_features=None,
             out_features=None,
-            act_layer=nn.GELU,
+            act_layer=mint.nn.GELU,
             norm_layer=None,
             bias=True,
             drop=0.,
@@ -40,10 +41,10 @@ class Mlp(nn.Module):
 
         self.fc1 = linear_layer(in_features, hidden_features, bias=bias, dtype=dtype, device=device)
         self.act = act_layer()
-        self.drop1 = nn.Dropout(drop_probs)
+        self.drop1 = mint.nn.Dropout(drop_probs)
         self.norm = norm_layer(hidden_features) if norm_layer is not None else nn.Identity()
         self.fc2 = linear_layer(hidden_features, out_features, bias=bias, dtype=dtype, device=device)
-        self.drop2 = nn.Dropout(drop_probs)
+        self.drop2 = mint.nn.Dropout(drop_probs)
 
     def forward(self, x):
         x = self.fc1(x)
@@ -54,10 +55,10 @@ class Mlp(nn.Module):
         x = self.drop2(x)
         return x
 
-class PatchEmbed(nn.Module):
+class PatchEmbed(mint.nn.Cell):
     """ 2D Image to Patch Embedding
     """
-    dynamic_img_pad: torch.jit.Final[bool]
+    dynamic_img_pad: ms.jit.Final[bool]
 
     def __init__(
             self,
@@ -95,7 +96,7 @@ class PatchEmbed(nn.Module):
             self.proj = operations.Conv3d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size, bias=bias, dtype=dtype, device=device)
         else:
             self.proj = operations.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size, bias=bias, dtype=dtype, device=device)
-        self.norm = norm_layer(embed_dim) if norm_layer else nn.Identity()
+        self.norm = norm_layer(embed_dim) if norm_layer else mint.nn.Identity()
 
     def forward(self, x):
         if self.dynamic_img_pad:
@@ -108,8 +109,8 @@ class PatchEmbed(nn.Module):
 
 def modulate(x, shift, scale):
     if shift is None:
-        shift = torch.zeros_like(scale)
-    return torch.addcmul(shift.unsqueeze(1), x, 1+ scale.unsqueeze(1))
+        shift = mint.zeros_like(scale)
+    return ops.Addcmul(shift.unsqueeze(1), x, 1+ scale.unsqueeze(1))
 
 
 #################################################################################
@@ -179,25 +180,25 @@ def get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
     emb = np.concatenate([emb_sin, emb_cos], axis=1)  # (M, D)
     return emb
 
-def get_1d_sincos_pos_embed_from_grid_torch(embed_dim, pos, device=None, dtype=torch.float32):
-    omega = torch.arange(embed_dim // 2, device=device, dtype=dtype)
+def get_1d_sincos_pos_embed_from_grid_torch(embed_dim, pos, device=None, dtype=ms.float32):
+    omega = mint.arange(embed_dim // 2, device=device, dtype=dtype)
     omega /= embed_dim / 2.0
     omega = 1.0 / 10000**omega  # (D/2,)
     pos = pos.reshape(-1)  # (M,)
-    out = torch.einsum("m,d->md", pos, omega)  # (M, D/2), outer product
-    emb_sin = torch.sin(out)  # (M, D/2)
-    emb_cos = torch.cos(out)  # (M, D/2)
-    emb = torch.cat([emb_sin, emb_cos], dim=1)  # (M, D)
+    out = mint.einsum("m,d->md", pos, omega)  # (M, D/2), outer product
+    emb_sin = mint.sin(out)  # (M, D/2)
+    emb_cos = mint.cos(out)  # (M, D/2)
+    emb = mint.cat([emb_sin, emb_cos], dim=1)  # (M, D)
     return emb
 
-def get_2d_sincos_pos_embed_torch(embed_dim, w, h, val_center=7.5, val_magnitude=7.5, device=None, dtype=torch.float32):
+def get_2d_sincos_pos_embed_torch(embed_dim, w, h, val_center=7.5, val_magnitude=7.5, device=None, dtype=ms.float32):
     small = min(h, w)
     val_h = (h / small) * val_magnitude
     val_w = (w / small) * val_magnitude
-    grid_h, grid_w = torch.meshgrid(torch.linspace(-val_h + val_center, val_h + val_center, h, device=device, dtype=dtype), torch.linspace(-val_w + val_center, val_w + val_center, w, device=device, dtype=dtype), indexing='ij')
+    grid_h, grid_w = mint.meshgrid(mint.linspace(-val_h + val_center, val_h + val_center, h, device=device, dtype=dtype), mint.linspace(-val_w + val_center, val_w + val_center, w, device=device, dtype=dtype), indexing='ij')
     emb_h = get_1d_sincos_pos_embed_from_grid_torch(embed_dim // 2, grid_h, device=device, dtype=dtype)
     emb_w = get_1d_sincos_pos_embed_from_grid_torch(embed_dim // 2, grid_w, device=device, dtype=dtype)
-    emb = torch.cat([emb_w, emb_h], dim=1)  # (H*W, D)
+    emb = mint.cat([emb_w, emb_h], dim=1)  # (H*W, D)
     return emb
 
 
@@ -206,16 +207,16 @@ def get_2d_sincos_pos_embed_torch(embed_dim, w, h, val_center=7.5, val_magnitude
 #################################################################################
 
 
-class TimestepEmbedder(nn.Module):
+class TimestepEmbedder(mint.nn.Cell):
     """
     Embeds scalar timesteps into vector representations.
     """
 
     def __init__(self, hidden_size, frequency_embedding_size=256, dtype=None, device=None, operations=None):
         super().__init__()
-        self.mlp = nn.Sequential(
+        self.mlp = mint.nn.Sequential(
             operations.Linear(frequency_embedding_size, hidden_size, bias=True, dtype=dtype, device=device),
-            nn.SiLU(),
+            mint.nn.SiLU(),
             operations.Linear(hidden_size, hidden_size, bias=True, dtype=dtype, device=device),
         )
         self.frequency_embedding_size = frequency_embedding_size
@@ -226,20 +227,20 @@ class TimestepEmbedder(nn.Module):
         return t_emb
 
 
-class VectorEmbedder(nn.Module):
+class VectorEmbedder(mint.nn.Cell):
     """
     Embeds a flat vector of dimension input_dim
     """
 
     def __init__(self, input_dim: int, hidden_size: int, dtype=None, device=None, operations=None):
         super().__init__()
-        self.mlp = nn.Sequential(
+        self.mlp = mint.nn.Sequential(
             operations.Linear(input_dim, hidden_size, bias=True, dtype=dtype, device=device),
-            nn.SiLU(),
+            mint.nn.SiLU(),
             operations.Linear(hidden_size, hidden_size, bias=True, dtype=dtype, device=device),
         )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: ms.Tensor) -> ms.Tensor:
         emb = self.mlp(x)
         return emb
 
@@ -254,7 +255,7 @@ def split_qkv(qkv, head_dim):
     return qkv[0], qkv[1], qkv[2]
 
 
-class SelfAttention(nn.Module):
+class SelfAttention(mint.nn.Cell):
     ATTENTION_MODES = ("xformers", "torch", "torch-hb", "math", "debug")
 
     def __init__(
@@ -279,7 +280,7 @@ class SelfAttention(nn.Module):
         self.qkv = operations.Linear(dim, dim * 3, bias=qkv_bias, dtype=dtype, device=device)
         if not pre_only:
             self.proj = operations.Linear(dim, dim, dtype=dtype, device=device)
-            self.proj_drop = nn.Dropout(proj_drop)
+            self.proj_drop = mint.nn.Dropout(proj_drop)
         assert attn_mode in self.ATTENTION_MODES
         self.attn_mode = attn_mode
         self.pre_only = pre_only
@@ -291,12 +292,12 @@ class SelfAttention(nn.Module):
             self.ln_q = operations.LayerNorm(self.head_dim, elementwise_affine=True, eps=1.0e-6, dtype=dtype, device=device)
             self.ln_k = operations.LayerNorm(self.head_dim, elementwise_affine=True, eps=1.0e-6, dtype=dtype, device=device)
         elif qk_norm is None:
-            self.ln_q = nn.Identity()
-            self.ln_k = nn.Identity()
+            self.ln_q = mint.nn.Identity()
+            self.ln_k = mint.nn.Identity()
         else:
             raise ValueError(qk_norm)
 
-    def pre_attention(self, x: torch.Tensor) -> torch.Tensor:
+    def pre_attention(self, x: ms.Tensor) -> ms.Tensor:
         B, L, C = x.shape
         qkv = self.qkv(x)
         q, k, v = split_qkv(qkv, self.head_dim)
@@ -304,13 +305,13 @@ class SelfAttention(nn.Module):
         k = self.ln_k(k).reshape(q.shape[0], q.shape[1], -1)
         return (q, k, v)
 
-    def post_attention(self, x: torch.Tensor) -> torch.Tensor:
+    def post_attention(self, x: ms.Tensor) -> ms.Tensor:
         assert not self.pre_only
         x = self.proj(x)
         x = self.proj_drop(x)
         return x
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: ms.Tensor) -> ms.Tensor:
         q, k, v = self.pre_attention(x)
         x = optimized_attention(
             q, k, v, heads=self.num_heads
@@ -319,7 +320,7 @@ class SelfAttention(nn.Module):
         return x
 
 
-class RMSNorm(torch.nn.Module):
+class RMSNorm(mint.nn.Cell):
     def __init__(
         self, dim: int, elementwise_affine: bool = False, eps: float = 1e-6, device=None, dtype=None, **kwargs
     ):
@@ -336,7 +337,7 @@ class RMSNorm(torch.nn.Module):
         self.eps = eps
         self.learnable_scale = elementwise_affine
         if self.learnable_scale:
-            self.weight = nn.Parameter(torch.empty(dim, device=device, dtype=dtype))
+            self.weight = ms.Parameter(mint.empty(dim, device=device, dtype=dtype))
         else:
             self.register_parameter("weight", None)
 
@@ -345,7 +346,7 @@ class RMSNorm(torch.nn.Module):
 
 
 
-class SwiGLUFeedForward(nn.Module):
+class SwiGLUFeedForward(mint.nn.Cell):
     def __init__(
         self,
         dim: int,
@@ -375,15 +376,15 @@ class SwiGLUFeedForward(nn.Module):
             hidden_dim = int(ffn_dim_multiplier * hidden_dim)
         hidden_dim = multiple_of * ((hidden_dim + multiple_of - 1) // multiple_of)
 
-        self.w1 = nn.Linear(dim, hidden_dim, bias=False)
-        self.w2 = nn.Linear(hidden_dim, dim, bias=False)
-        self.w3 = nn.Linear(dim, hidden_dim, bias=False)
+        self.w1 = mint.nn.Linear(dim, hidden_dim, bias=False)
+        self.w2 = mint.nn.Linear(hidden_dim, dim, bias=False)
+        self.w3 = mint.nn.Linear(dim, hidden_dim, bias=False)
 
     def forward(self, x):
-        return self.w2(nn.functional.silu(self.w1(x)) * self.w3(x))
+        return self.w2(mint.nn.functional.silu(self.w1(x)) * self.w3(x))
 
 
-class DismantledBlock(nn.Module):
+class DismantledBlock(mint.nn.Cell):
     """
     A DiT block with gated adaptive layer norm (adaLN) conditioning.
     """
@@ -457,7 +458,7 @@ class DismantledBlock(nn.Module):
                 self.mlp = Mlp(
                     in_features=hidden_size,
                     hidden_features=mlp_hidden_dim,
-                    act_layer=lambda: nn.GELU(approximate="tanh"),
+                    act_layer=lambda: mint.nn.GELU(approximate="tanh"),
                     drop=0,
                     dtype=dtype,
                     device=device,
@@ -478,12 +479,12 @@ class DismantledBlock(nn.Module):
             n_mods = 6 if not pre_only else 2
         else:
             n_mods = 4 if not pre_only else 1
-        self.adaLN_modulation = nn.Sequential(
-            nn.SiLU(), operations.Linear(hidden_size, n_mods * hidden_size, bias=True, dtype=dtype, device=device)
+        self.adaLN_modulation = mint.nn.Sequential(
+            mint.nn.SiLU(), operations.Linear(hidden_size, n_mods * hidden_size, bias=True, dtype=dtype, device=device)
         )
         self.pre_only = pre_only
 
-    def pre_attention(self, x: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+    def pre_attention(self, x: ms.Tensor, c: ms.Tensor) -> ms.Tensor:
         if not self.pre_only:
             if not self.scale_mod_only:
                 (
@@ -535,7 +536,7 @@ class DismantledBlock(nn.Module):
         )
         return x
 
-    def pre_attention_x(self, x: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+    def pre_attention_x(self, x: ms.Tensor, c: ms.Tensor) -> ms.Tensor:
         assert self.x_block_self_attn
         (
             shift_msa,
@@ -570,7 +571,7 @@ class DismantledBlock(nn.Module):
         )
         return x
 
-    def forward(self, x: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: ms.Tensor, c: ms.Tensor) -> ms.Tensor:
         assert not self.pre_only
         if self.x_block_self_attn:
             qkv, qkv2, intermediates = self.pre_attention_x(x, c)
@@ -594,17 +595,16 @@ class DismantledBlock(nn.Module):
 def gate_cat(x, gate_msa, gate_msa2, attn1, attn2):
     out1 = gate_msa.unsqueeze(1) * attn1
     out2 = gate_msa2.unsqueeze(1) * attn2
-    x = torch.stack([x, out1, out2], dim=0).sum(dim=0)
+    x = mint.stack([x, out1, out2], dim=0).sum(dim=0)
     return x
 
 def block_mixing(*args, use_checkpoint=True, **kwargs):
     if use_checkpoint:
-        return torch.utils.checkpoint.checkpoint(
-            _block_mixing, *args, use_reentrant=False, **kwargs
-        )
+        raise NotImplementedError("Checkpoint is not supported for MindSpore")
+        return None
     else:
         return _block_mixing(*args, **kwargs)
-
+    
 
 def _block_mixing(context, x, context_block, x_block, c, transformer_options={}):
     context_qkv, context_intermediates = context_block.pre_attention(context, c)
@@ -616,7 +616,7 @@ def _block_mixing(context, x, context_block, x_block, c, transformer_options={})
 
     o = []
     for t in range(3):
-        o.append(torch.cat((context_qkv[t], x_qkv[t]), dim=1))
+        o.append(mint.cat((context_qkv[t], x_qkv[t]), dim=1))
     qkv = tuple(o)
 
     attn = optimized_attention(
@@ -646,7 +646,7 @@ def _block_mixing(context, x, context_block, x_block, c, transformer_options={})
     return context, x
 
 
-class JointBlock(nn.Module):
+class JointBlock(mint.nn.Cell):
     """just a small wrapper to serve as a fsdp unit"""
 
     def __init__(
@@ -671,7 +671,7 @@ class JointBlock(nn.Module):
         )
 
 
-class FinalLayer(nn.Module):
+class FinalLayer(mint.nn.Cell):
     """
     The final layer of DiT.
     """
@@ -693,17 +693,17 @@ class FinalLayer(nn.Module):
             if (total_out_channels is None)
             else operations.Linear(hidden_size, total_out_channels, bias=True, dtype=dtype, device=device)
         )
-        self.adaLN_modulation = nn.Sequential(
-            nn.SiLU(), operations.Linear(hidden_size, 2 * hidden_size, bias=True, dtype=dtype, device=device)
+        self.adaLN_modulation = mint.nn.Sequential(
+            mint.nn.SiLU(), operations.Linear(hidden_size, 2 * hidden_size, bias=True, dtype=dtype, device=device)
         )
 
-    def forward(self, x: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: ms.Tensor, c: ms.Tensor) -> ms.Tensor:
         shift, scale = self.adaLN_modulation(c).chunk(2, dim=1)
         x = modulate(self.norm_final(x), shift, scale)
         x = self.linear(x)
         return x
 
-class SelfAttentionContext(nn.Module):
+class SelfAttentionContext(mint.nn.Cell):
     def __init__(self, dim, heads=8, dim_head=64, dtype=None, device=None, operations=None):
         super().__init__()
         dim_head = dim // heads
@@ -722,23 +722,23 @@ class SelfAttentionContext(nn.Module):
         x = optimized_attention(q.reshape(q.shape[0], q.shape[1], -1), k, v, heads=self.heads)
         return self.proj(x)
 
-class ContextProcessorBlock(nn.Module):
+class ContextProcessorBlock(mint.nn.Cell):
     def __init__(self, context_size, dtype=None, device=None, operations=None):
         super().__init__()
         self.norm1 = operations.LayerNorm(context_size, elementwise_affine=False, eps=1e-6, dtype=dtype, device=device)
         self.attn = SelfAttentionContext(context_size, dtype=dtype, device=device, operations=operations)
         self.norm2 = operations.LayerNorm(context_size, elementwise_affine=False, eps=1e-6, dtype=dtype, device=device)
-        self.mlp = Mlp(in_features=context_size, hidden_features=(context_size * 4), act_layer=lambda: nn.GELU(approximate="tanh"), drop=0, dtype=dtype, device=device, operations=operations)
+        self.mlp = Mlp(in_features=context_size, hidden_features=(context_size * 4), act_layer=lambda: mint.nn.GELU(approximate="tanh"), drop=0, dtype=dtype, device=device, operations=operations)
 
     def forward(self, x):
         x += self.attn(self.norm1(x))
         x += self.mlp(self.norm2(x))
         return x
 
-class ContextProcessor(nn.Module):
+class ContextProcessor(mint.nn.Cell):
     def __init__(self, context_size, num_layers, dtype=None, device=None, operations=None):
         super().__init__()
-        self.layers = torch.nn.ModuleList([ContextProcessorBlock(context_size, dtype=dtype, device=device, operations=operations) for i in range(num_layers)])
+        self.layers = mint.nn.CellList([ContextProcessorBlock(context_size, dtype=dtype, device=device, operations=operations) for i in range(num_layers)])
         self.norm = operations.LayerNorm(context_size, elementwise_affine=False, eps=1e-6, dtype=dtype, device=device)
 
     def forward(self, x):
@@ -746,7 +746,7 @@ class ContextProcessor(nn.Module):
             x = l(x)
         return self.norm(x)
 
-class MMDiT(nn.Module):
+class MMDiT(mint.nn.Cell):
     """
     Diffusion model with a Transformer backbone.
     """
@@ -835,14 +835,14 @@ class MMDiT(nn.Module):
         else:
             self.context_processor = None
 
-        self.context_embedder = nn.Identity()
+        self.context_embedder = mint.nn.Identity()
         if context_embedder_config is not None:
-            if context_embedder_config["target"] == "torch.nn.Linear":
+            if context_embedder_config["target"] == "torch.mint.nn.Linear":
                 self.context_embedder = operations.Linear(**context_embedder_config["params"], dtype=dtype, device=device)
 
         self.register_length = register_length
         if self.register_length > 0:
-            self.register = nn.Parameter(torch.randn(1, register_length, self.hidden_size, dtype=dtype, device=device))
+            self.register = ms.Parameter(mint.randn(1, register_length, self.hidden_size, dtype=dtype, device=device))
 
         # num_patches = self.x_embedder.num_patches
         # Will use fixed sin-cos embedding:
@@ -850,14 +850,14 @@ class MMDiT(nn.Module):
         if num_patches is not None:
             self.register_buffer(
                 "pos_embed",
-                torch.empty(1, num_patches, self.hidden_size, dtype=dtype, device=device),
+                mint.empty(1, num_patches, self.hidden_size, dtype=dtype, device=device),
             )
         else:
             self.pos_embed = None
 
         self.use_checkpoint = use_checkpoint
         if not skip_blocks:
-            self.joint_blocks = nn.ModuleList(
+            self.joint_blocks = mint.nn.CellList(
                 [
                     JointBlock(
                         self.hidden_size,
@@ -930,24 +930,24 @@ class MMDiT(nn.Module):
         assert h * w == x.shape[1]
 
         x = x.reshape(shape=(x.shape[0], h, w, p, p, c))
-        x = torch.einsum("nhwpqc->nchpwq", x)
+        x = mint.einsum("nhwpqc->nchpwq", x)
         imgs = x.reshape(shape=(x.shape[0], c, h * p, w * p))
         return imgs
 
     def forward_core_with_concat(
         self,
-        x: torch.Tensor,
-        c_mod: torch.Tensor,
-        context: Optional[torch.Tensor] = None,
+        x: ms.Tensor,
+        c_mod: ms.Tensor,
+        context: Optional[ms.Tensor] = None,
         control = None,
         transformer_options = {},
-    ) -> torch.Tensor:
+    ) -> ms.Tensor:
         patches_replace = transformer_options.get("patches_replace", {})
         if self.register_length > 0:
-            context = torch.cat(
+            context = mint.cat(
                 (
                     repeat(self.register, "1 ... -> b ...", b=x.shape[0]),
-                    default(context, torch.Tensor([]).type_as(x)),
+                    default(context, ms.Tensor([]).type_as(x)),
                 ),
                 1,
             )
@@ -986,13 +986,13 @@ class MMDiT(nn.Module):
 
     def forward(
         self,
-        x: torch.Tensor,
-        t: torch.Tensor,
-        y: Optional[torch.Tensor] = None,
-        context: Optional[torch.Tensor] = None,
+        x: ms.Tensor,
+        t: ms.Tensor,
+        y: Optional[ms.Tensor] = None,
+        context: Optional[ms.Tensor] = None,
         control = None,
         transformer_options = {},
-    ) -> torch.Tensor:
+    ) -> ms.Tensor:
         """
         Forward pass of DiT.
         x: (N, C, H, W) tensor of spatial inputs (images or latent representations of images)
@@ -1022,13 +1022,12 @@ class MMDiT(nn.Module):
 class OpenAISignatureMMDITWrapper(MMDiT):
     def forward(
         self,
-        x: torch.Tensor,
-        timesteps: torch.Tensor,
-        context: Optional[torch.Tensor] = None,
-        y: Optional[torch.Tensor] = None,
+        x: ms.Tensor,
+        timesteps: ms.Tensor,
+        context: Optional[ms.Tensor] = None,
+        y: Optional[ms.Tensor] = None,
         control = None,
         transformer_options = {},
         **kwargs,
-    ) -> torch.Tensor:
+    ) -> ms.Tensor:
         return super().forward(x, timesteps, context=context, y=y, control=control, transformer_options=transformer_options)
-
