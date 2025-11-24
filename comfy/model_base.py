@@ -140,7 +140,7 @@ class BaseModel(mindspore.nn.Cell):
                 operations = comfy.ops.pick_operations(unet_config.get("dtype", None), self.manual_cast_dtype, fp8_optimizations=fp8, scaled_fp8=model_config.scaled_fp8, model_config=model_config)
             else:
                 operations = model_config.custom_operations
-            self.diffusion_model = unet_model(**unet_config, device=None, operations=operations)
+            self.diffusion_model = unet_model(**unet_config, operations=operations)
             self.diffusion_model.set_train(False)
             # if comfy.model_management.force_channels_last():
             #     self.diffusion_model.to(memory_format=torch.channels_last)
@@ -735,8 +735,8 @@ class SD21UNCLIP(BaseModel):
 
 
 class SD3(BaseModel):
-    def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
-        super().__init__(model_config, model_type, device=device, unet_model=OpenAISignatureMMDITWrapper)
+    def __init__(self, model_config, model_type=ModelType.FLOW):
+        super().__init__(model_config, model_type, unet_model=OpenAISignatureMMDITWrapper)
 
     def encode_adm(self, **kwargs):
         return kwargs["pooled_output"]
