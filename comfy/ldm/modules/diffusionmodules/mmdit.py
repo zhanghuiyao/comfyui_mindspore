@@ -731,7 +731,7 @@ class ContextProcessorBlock(mint.nn.Cell):
 class ContextProcessor(mint.nn.Cell):
     def __init__(self, context_size, num_layers, dtype=None, operations=None):
         super().__init__()
-        self.layers = mint.nn.CellList([ContextProcessorBlock(context_size, dtype=dtype, operations=operations) for i in range(num_layers)])
+        self.layers = nn.CellList([ContextProcessorBlock(context_size, dtype=dtype, operations=operations) for i in range(num_layers)])
         self.norm = operations.LayerNorm(context_size, elementwise_affine=False, eps=1e-6, dtype=dtype)
 
     def construct(self, x):
@@ -848,7 +848,7 @@ class MMDiT(mint.nn.Cell):
 
         self.use_checkpoint = use_checkpoint
         if not skip_blocks:
-            self.joint_blocks = mint.nn.CellList(
+            self.joint_blocks = nn.CellList(
                 [
                     JointBlock(
                         self.hidden_size,
