@@ -30,7 +30,6 @@ class Mlp(mint.nn.Cell):
             drop=0.,
             use_conv=False,
             dtype=None,
-            device=None,
             operations=None,
     ):
         super().__init__()
@@ -39,11 +38,11 @@ class Mlp(mint.nn.Cell):
         drop_probs = drop
         linear_layer = partial(operations.Conv2d, kernel_size=1) if use_conv else operations.Linear
 
-        self.fc1 = linear_layer(in_features, hidden_features, bias=bias, dtype=dtype, device=device)
+        self.fc1 = linear_layer(in_features, hidden_features, bias=bias, dtype=dtype)
         self.act = act_layer()
         self.drop1 = mint.nn.Dropout(drop_probs)
-        self.norm = norm_layer(hidden_features) if norm_layer is not None else nn.Identity()
-        self.fc2 = linear_layer(hidden_features, out_features, bias=bias, dtype=dtype, device=device)
+        self.norm = norm_layer(hidden_features) if norm_layer is not None else mint.nn.Identity()
+        self.fc2 = linear_layer(hidden_features, out_features, bias=bias, dtype=dtype)
         self.drop2 = mint.nn.Dropout(drop_probs)
 
     def construct(self, x):
@@ -74,7 +73,6 @@ class PatchEmbed(mint.nn.Cell):
             padding_mode='circular',
             conv3d=False,
             dtype=None,
-            device=None,
             operations=None,
     ):
         super().__init__()
@@ -93,9 +91,9 @@ class PatchEmbed(mint.nn.Cell):
         self.strict_img_size = strict_img_size
         self.dynamic_img_pad = dynamic_img_pad
         if conv3d:
-            self.proj = operations.Conv3d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size, bias=bias, dtype=dtype, device=device)
+            self.proj = operations.Conv3d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size, bias=bias, dtype=dtype)
         else:
-            self.proj = operations.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size, bias=bias, dtype=dtype, device=device)
+            self.proj = operations.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size, bias=bias, dtype=dtype)
         self.norm = norm_layer(embed_dim) if norm_layer else mint.nn.Identity()
 
     def construct(self, x):
@@ -180,8 +178,8 @@ def get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
     emb = np.concatenate([emb_sin, emb_cos], axis=1)  # (M, D)
     return emb
 
-def get_1d_sincos_pos_embed_from_grid_torch(embed_dim, pos, device=None, dtype=ms.float32):
-    omega = mint.arange(embed_dim // 2, device=device, dtype=dtype)
+def get_1d_sincos_pos_embed_from_grid_torch(embed_dim, pos, dtype=ms.float32):
+    omega = mint.arange(embed_dim // 2, dtype=dtype)
     omega /= embed_dim / 2.0
     omega = 1.0 / 10000**omega  # (D/2,)
     pos = pos.reshape(-1)  # (M,)
@@ -191,13 +189,13 @@ def get_1d_sincos_pos_embed_from_grid_torch(embed_dim, pos, device=None, dtype=m
     emb = mint.cat([emb_sin, emb_cos], dim=1)  # (M, D)
     return emb
 
-def get_2d_sincos_pos_embed_torch(embed_dim, w, h, val_center=7.5, val_magnitude=7.5, device=None, dtype=ms.float32):
+def get_2d_sincos_pos_embed_torch(embed_dim, w, h, val_center=7.5, val_magnitude=7.5, dtype=ms.float32):
     small = min(h, w)
     val_h = (h / small) * val_magnitude
     val_w = (w / small) * val_magnitude
-    grid_h, grid_w = mint.meshgrid(mint.linspace(-val_h + val_center, val_h + val_center, h, device=device, dtype=dtype), mint.linspace(-val_w + val_center, val_w + val_center, w, device=device, dtype=dtype), indexing='ij')
-    emb_h = get_1d_sincos_pos_embed_from_grid_torch(embed_dim // 2, grid_h, device=device, dtype=dtype)
-    emb_w = get_1d_sincos_pos_embed_from_grid_torch(embed_dim // 2, grid_w, device=device, dtype=dtype)
+    grid_h, grid_w = mint.meshgrid(mint.linspace(-val_h + val_center, val_h + val_center, h, dtype=dtype), mint.linspace(-val_w + val_center, val_w + val_center, w, dtype=dtype), indexing='ij')
+    emb_h = get_1d_sincos_pos_embed_from_grid_torch(embed_dim // 2, grid_h, dtype=dtype)
+    emb_w = get_1d_sincos_pos_embed_from_grid_torch(embed_dim // 2, grid_w, dtype=dtype)
     emb = mint.cat([emb_w, emb_h], dim=1)  # (H*W, D)
     return emb
 
@@ -212,12 +210,12 @@ class TimestepEmbedder(mint.nn.Cell):
     Embeds scalar timesteps into vector representations.
     """
 
-    def __init__(self, hidden_size, frequency_embedding_size=256, dtype=None, device=None, operations=None):
+    def __init__(self, hidden_size, frequency_embedding_size=256, dtype=None, operations=None):
         super().__init__()
         self.mlp = mint.nn.Sequential(
-            operations.Linear(frequency_embedding_size, hidden_size, bias=True, dtype=dtype, device=device),
+            operations.Linear(frequency_embedding_size, hidden_size, bias=True, dtype=dtype),
             mint.nn.SiLU(),
-            operations.Linear(hidden_size, hidden_size, bias=True, dtype=dtype, device=device),
+            operations.Linear(hidden_size, hidden_size, bias=True, dtype=dtype),
         )
         self.frequency_embedding_size = frequency_embedding_size
 
@@ -232,12 +230,12 @@ class VectorEmbedder(mint.nn.Cell):
     Embeds a flat vector of dimension input_dim
     """
 
-    def __init__(self, input_dim: int, hidden_size: int, dtype=None, device=None, operations=None):
+    def __init__(self, input_dim: int, hidden_size: int, dtype=None, operations=None):
         super().__init__()
         self.mlp = mint.nn.Sequential(
-            operations.Linear(input_dim, hidden_size, bias=True, dtype=dtype, device=device),
+            operations.Linear(input_dim, hidden_size, bias=True, dtype=dtype),
             mint.nn.SiLU(),
-            operations.Linear(hidden_size, hidden_size, bias=True, dtype=dtype, device=device),
+            operations.Linear(hidden_size, hidden_size, bias=True, dtype=dtype),
         )
 
     def construct(self, x: ms.Tensor) -> ms.Tensor:
@@ -270,27 +268,26 @@ class SelfAttention(mint.nn.Cell):
         qk_norm: Optional[str] = None,
         rmsnorm: bool = False,
         dtype=None,
-        device=None,
         operations=None,
     ):
         super().__init__()
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
 
-        self.qkv = operations.Linear(dim, dim * 3, bias=qkv_bias, dtype=dtype, device=device)
+        self.qkv = operations.Linear(dim, dim * 3, bias=qkv_bias, dtype=dtype)
         if not pre_only:
-            self.proj = operations.Linear(dim, dim, dtype=dtype, device=device)
+            self.proj = operations.Linear(dim, dim, dtype=dtype)
             self.proj_drop = mint.nn.Dropout(proj_drop)
         assert attn_mode in self.ATTENTION_MODES
         self.attn_mode = attn_mode
         self.pre_only = pre_only
 
         if qk_norm == "rms":
-            self.ln_q = RMSNorm(self.head_dim, elementwise_affine=True, eps=1.0e-6, dtype=dtype, device=device)
-            self.ln_k = RMSNorm(self.head_dim, elementwise_affine=True, eps=1.0e-6, dtype=dtype, device=device)
+            self.ln_q = RMSNorm(self.head_dim, elementwise_affine=True, eps=1.0e-6, dtype=dtype)
+            self.ln_k = RMSNorm(self.head_dim, elementwise_affine=True, eps=1.0e-6, dtype=dtype)
         elif qk_norm == "ln":
-            self.ln_q = operations.LayerNorm(self.head_dim, elementwise_affine=True, eps=1.0e-6, dtype=dtype, device=device)
-            self.ln_k = operations.LayerNorm(self.head_dim, elementwise_affine=True, eps=1.0e-6, dtype=dtype, device=device)
+            self.ln_q = operations.LayerNorm(self.head_dim, elementwise_affine=True, eps=1.0e-6, dtype=dtype)
+            self.ln_k = operations.LayerNorm(self.head_dim, elementwise_affine=True, eps=1.0e-6, dtype=dtype)
         elif qk_norm is None:
             self.ln_q = mint.nn.Identity()
             self.ln_k = mint.nn.Identity()
@@ -322,7 +319,7 @@ class SelfAttention(mint.nn.Cell):
 
 class RMSNorm(mint.nn.Cell):
     def __init__(
-        self, dim: int, elementwise_affine: bool = False, eps: float = 1e-6, device=None, dtype=None, **kwargs
+        self, dim: int, elementwise_affine: bool = False, eps: float = 1e-6, dtype=None, **kwargs
     ):
         """
         Initialize the RMSNorm normalization layer.
@@ -337,7 +334,7 @@ class RMSNorm(mint.nn.Cell):
         self.eps = eps
         self.learnable_scale = elementwise_affine
         if self.learnable_scale:
-            self.weight = ms.Parameter(mint.empty(dim, device=device, dtype=dtype))
+            self.weight = ms.Parameter(mint.empty(dim, dtype=dtype))
         else:
             self.register_parameter("weight", None)
 
@@ -405,14 +402,13 @@ class DismantledBlock(mint.nn.Cell):
         qk_norm: Optional[str] = None,
         x_block_self_attn: bool = False,
         dtype=None,
-        device=None,
         operations=None,
         **block_kwargs,
     ):
         super().__init__()
         assert attn_mode in self.ATTENTION_MODES
         if not rmsnorm:
-            self.norm1 = operations.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6, dtype=dtype, device=device)
+            self.norm1 = operations.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6, dtype=dtype)
         else:
             self.norm1 = RMSNorm(hidden_size, elementwise_affine=False, eps=1e-6)
         self.attn = SelfAttention(
@@ -424,7 +420,6 @@ class DismantledBlock(mint.nn.Cell):
             qk_norm=qk_norm,
             rmsnorm=rmsnorm,
             dtype=dtype,
-            device=device,
             operations=operations
         )
         if x_block_self_attn:
@@ -440,7 +435,6 @@ class DismantledBlock(mint.nn.Cell):
                 qk_norm=qk_norm,
                 rmsnorm=rmsnorm,
                 dtype=dtype,
-                device=device,
                 operations=operations
             )
         else:
@@ -448,7 +442,7 @@ class DismantledBlock(mint.nn.Cell):
         if not pre_only:
             if not rmsnorm:
                 self.norm2 = operations.LayerNorm(
-                    hidden_size, elementwise_affine=False, eps=1e-6, dtype=dtype, device=device
+                    hidden_size, elementwise_affine=False, eps=1e-6, dtype=dtype
                 )
             else:
                 self.norm2 = RMSNorm(hidden_size, elementwise_affine=False, eps=1e-6)
@@ -461,7 +455,6 @@ class DismantledBlock(mint.nn.Cell):
                     act_layer=lambda: mint.nn.GELU(approximate="tanh"),
                     drop=0,
                     dtype=dtype,
-                    device=device,
                     operations=operations
                 )
             else:
@@ -480,7 +473,7 @@ class DismantledBlock(mint.nn.Cell):
         else:
             n_mods = 4 if not pre_only else 1
         self.adaLN_modulation = mint.nn.Sequential(
-            mint.nn.SiLU(), operations.Linear(hidden_size, n_mods * hidden_size, bias=True, dtype=dtype, device=device)
+            mint.nn.SiLU(), operations.Linear(hidden_size, n_mods * hidden_size, bias=True, dtype=dtype)
         )
         self.pre_only = pre_only
 
@@ -683,18 +676,17 @@ class FinalLayer(mint.nn.Cell):
         out_channels: int,
         total_out_channels: Optional[int] = None,
         dtype=None,
-        device=None,
         operations=None,
     ):
         super().__init__()
-        self.norm_final = operations.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6, dtype=dtype, device=device)
+        self.norm_final = operations.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6, dtype=dtype)
         self.linear = (
-            operations.Linear(hidden_size, patch_size * patch_size * out_channels, bias=True, dtype=dtype, device=device)
+            operations.Linear(hidden_size, patch_size * patch_size * out_channels, bias=True, dtype=dtype)
             if (total_out_channels is None)
-            else operations.Linear(hidden_size, total_out_channels, bias=True, dtype=dtype, device=device)
+            else operations.Linear(hidden_size, total_out_channels, bias=True, dtype=dtype)
         )
         self.adaLN_modulation = mint.nn.Sequential(
-            mint.nn.SiLU(), operations.Linear(hidden_size, 2 * hidden_size, bias=True, dtype=dtype, device=device)
+            mint.nn.SiLU(), operations.Linear(hidden_size, 2 * hidden_size, bias=True, dtype=dtype)
         )
 
     def construct(self, x: ms.Tensor, c: ms.Tensor) -> ms.Tensor:
@@ -704,7 +696,7 @@ class FinalLayer(mint.nn.Cell):
         return x
 
 class SelfAttentionContext(mint.nn.Cell):
-    def __init__(self, dim, heads=8, dim_head=64, dtype=None, device=None, operations=None):
+    def __init__(self, dim, heads=8, dim_head=64, dtype=None, operations=None):
         super().__init__()
         dim_head = dim // heads
         inner_dim = dim
@@ -712,9 +704,9 @@ class SelfAttentionContext(mint.nn.Cell):
         self.heads = heads
         self.dim_head = dim_head
 
-        self.qkv = operations.Linear(dim, dim * 3, bias=True, dtype=dtype, device=device)
+        self.qkv = operations.Linear(dim, dim * 3, bias=True, dtype=dtype)
 
-        self.proj = operations.Linear(inner_dim, dim, dtype=dtype, device=device)
+        self.proj = operations.Linear(inner_dim, dim, dtype=dtype)
 
     def construct(self, x):
         qkv = self.qkv(x)
@@ -723,12 +715,12 @@ class SelfAttentionContext(mint.nn.Cell):
         return self.proj(x)
 
 class ContextProcessorBlock(mint.nn.Cell):
-    def __init__(self, context_size, dtype=None, device=None, operations=None):
+    def __init__(self, context_size, dtype=None, operations=None):
         super().__init__()
-        self.norm1 = operations.LayerNorm(context_size, elementwise_affine=False, eps=1e-6, dtype=dtype, device=device)
-        self.attn = SelfAttentionContext(context_size, dtype=dtype, device=device, operations=operations)
-        self.norm2 = operations.LayerNorm(context_size, elementwise_affine=False, eps=1e-6, dtype=dtype, device=device)
-        self.mlp = Mlp(in_features=context_size, hidden_features=(context_size * 4), act_layer=lambda: mint.nn.GELU(approximate="tanh"), drop=0, dtype=dtype, device=device, operations=operations)
+        self.norm1 = operations.LayerNorm(context_size, elementwise_affine=False, eps=1e-6, dtype=dtype)
+        self.attn = SelfAttentionContext(context_size, dtype=dtype, operations=operations)
+        self.norm2 = operations.LayerNorm(context_size, elementwise_affine=False, eps=1e-6, dtype=dtype)
+        self.mlp = Mlp(in_features=context_size, hidden_features=(context_size * 4), act_layer=lambda: mint.nn.GELU(approximate="tanh"), drop=0, dtype=dtype, operations=operations)
 
     def construct(self, x):
         x += self.attn(self.norm1(x))
@@ -736,10 +728,10 @@ class ContextProcessorBlock(mint.nn.Cell):
         return x
 
 class ContextProcessor(mint.nn.Cell):
-    def __init__(self, context_size, num_layers, dtype=None, device=None, operations=None):
+    def __init__(self, context_size, num_layers, dtype=None, operations=None):
         super().__init__()
-        self.layers = mint.nn.CellList([ContextProcessorBlock(context_size, dtype=dtype, device=device, operations=operations) for i in range(num_layers)])
-        self.norm = operations.LayerNorm(context_size, elementwise_affine=False, eps=1e-6, dtype=dtype, device=device)
+        self.layers = mint.nn.CellList([ContextProcessorBlock(context_size, dtype=dtype, operations=operations) for i in range(num_layers)])
+        self.norm = operations.LayerNorm(context_size, elementwise_affine=False, eps=1e-6, dtype=dtype)
 
     def construct(self, x):
         for i, l in enumerate(self.layers):
@@ -785,7 +777,6 @@ class MMDiT(mint.nn.Cell):
         final_layer = True,
         skip_blocks = False,
         dtype = None, #TODO
-        device = None,
         operations = None,
     ):
         super().__init__()
@@ -820,29 +811,28 @@ class MMDiT(mint.nn.Cell):
             bias=True,
             strict_img_size=self.pos_embed_max_size is None,
             dtype=dtype,
-            device=device,
             operations=operations
         )
-        self.t_embedder = TimestepEmbedder(self.hidden_size, dtype=dtype, device=device, operations=operations)
+        self.t_embedder = TimestepEmbedder(self.hidden_size, dtype=dtype, operations=operations)
 
         self.y_embedder = None
         if adm_in_channels is not None:
             assert isinstance(adm_in_channels, int)
-            self.y_embedder = VectorEmbedder(adm_in_channels, self.hidden_size, dtype=dtype, device=device, operations=operations)
+            self.y_embedder = VectorEmbedder(adm_in_channels, self.hidden_size, dtype=dtype operations=operations)
 
         if context_processor_layers is not None:
-            self.context_processor = ContextProcessor(context_size, context_processor_layers, dtype=dtype, device=device, operations=operations)
+            self.context_processor = ContextProcessor(context_size, context_processor_layers, dtype=dtype, operations=operations)
         else:
             self.context_processor = None
 
         self.context_embedder = mint.nn.Identity()
         if context_embedder_config is not None:
             if context_embedder_config["target"] == "torch.mint.nn.Linear":
-                self.context_embedder = operations.Linear(**context_embedder_config["params"], dtype=dtype, device=device)
+                self.context_embedder = operations.Linear(**context_embedder_config["params"], dtype=dtype)
 
         self.register_length = register_length
         if self.register_length > 0:
-            self.register = ms.Parameter(mint.randn(1, register_length, self.hidden_size, dtype=dtype, device=device))
+            self.register = ms.Parameter(mint.randn(1, register_length, self.hidden_size, dtype=dtype))
 
         # num_patches = self.x_embedder.num_patches
         # Will use fixed sin-cos embedding:
@@ -850,7 +840,7 @@ class MMDiT(mint.nn.Cell):
         if num_patches is not None:
             self.register_buffer(
                 "pos_embed",
-                mint.empty(1, num_patches, self.hidden_size, dtype=dtype, device=device),
+                mint.empty(1, num_patches, self.hidden_size, dtype=dtype),
             )
         else:
             self.pos_embed = None
@@ -872,7 +862,6 @@ class MMDiT(mint.nn.Cell):
                         qk_norm=qk_norm,
                         x_block_self_attn=(i in self.x_block_self_attn_layers) or x_block_self_attn,
                         dtype=dtype,
-                        device=device,
                         operations=operations,
                     )
                     for i in range(num_blocks)
@@ -880,20 +869,20 @@ class MMDiT(mint.nn.Cell):
             )
 
         if final_layer:
-            self.final_layer = FinalLayer(self.hidden_size, patch_size, self.out_channels, dtype=dtype, device=device, operations=operations)
+            self.final_layer = FinalLayer(self.hidden_size, patch_size, self.out_channels, dtype=dtype, operations=operations)
 
         if compile_core:
             assert False
             self.forward_core_with_concat = torch.compile(self.forward_core_with_concat)
 
-    def cropped_pos_embed(self, hw, device=None):
+    def cropped_pos_embed(self, hw):
         p = self.x_embedder.patch_size[0]
         h, w = hw
         # patched size
         h = (h + 1) // p
         w = (w + 1) // p
         if self.pos_embed is None:
-            return get_2d_sincos_pos_embed_torch(self.hidden_size, w, h, device=device)
+            return get_2d_sincos_pos_embed_torch(self.hidden_size, w, h)
         assert self.pos_embed_max_size is not None
         assert h <= self.pos_embed_max_size, (h, self.pos_embed_max_size)
         assert w <= self.pos_embed_max_size, (w, self.pos_embed_max_size)
@@ -908,8 +897,8 @@ class MMDiT(mint.nn.Cell):
         spatial_pos_embed = spatial_pos_embed[:, top : top + h, left : left + w, :]
         spatial_pos_embed = rearrange(spatial_pos_embed, "1 h w c -> 1 (h w) c")
         # print(spatial_pos_embed, top, left, h, w)
-        # # t = get_2d_sincos_pos_embed_torch(self.hidden_size, w, h, 7.875, 7.875, device=device) #matches exactly for 1024 res
-        # t = get_2d_sincos_pos_embed_torch(self.hidden_size, w, h, 7.5, 7.5, device=device) #scales better
+        # # t = get_2d_sincos_pos_embed_torch(self.hidden_size, w, h, 7.875, 7.875) #matches exactly for 1024 res
+        # t = get_2d_sincos_pos_embed_torch(self.hidden_size, w, h, 7.5, 7.5) #scales better
         # # print(t)
         # return t
         return spatial_pos_embed
@@ -1004,7 +993,7 @@ class MMDiT(mint.nn.Cell):
             context = self.context_processor(context)
 
         hw = x.shape[-2:]
-        x = self.x_embedder(x) + comfy.ops.cast_to_input(self.cropped_pos_embed(hw, device=x.device), x)
+        x = self.x_embedder(x) + comfy.ops.cast_to_input(self.cropped_pos_embed(hwe), x)
         c = self.t_embedder(t, dtype=x.dtype)  # (N, D)
         if y is not None and self.y_embedder is not None:
             y = self.y_embedder(y)  # (N, D)
