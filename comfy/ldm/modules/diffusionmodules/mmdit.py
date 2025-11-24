@@ -213,7 +213,7 @@ class TimestepEmbedder(mint.nn.Cell):
 
     def __init__(self, hidden_size, frequency_embedding_size=256, dtype=None, operations=None):
         super().__init__()
-        self.mlp = nn.Sequential(
+        self.mlp = nn.SequentialCell(
             operations.Linear(frequency_embedding_size, hidden_size, bias=True, dtype=dtype),
             mint.nn.SiLU(),
             operations.Linear(hidden_size, hidden_size, bias=True, dtype=dtype),
@@ -233,7 +233,7 @@ class VectorEmbedder(mint.nn.Cell):
 
     def __init__(self, input_dim: int, hidden_size: int, dtype=None, operations=None):
         super().__init__()
-        self.mlp = nn.Sequential(
+        self.mlp = nn.SequentialCell(
             operations.Linear(input_dim, hidden_size, bias=True, dtype=dtype),
             mint.nn.SiLU(),
             operations.Linear(hidden_size, hidden_size, bias=True, dtype=dtype),
@@ -473,7 +473,7 @@ class DismantledBlock(mint.nn.Cell):
             n_mods = 6 if not pre_only else 2
         else:
             n_mods = 4 if not pre_only else 1
-        self.adaLN_modulation = nn.Sequential(
+        self.adaLN_modulation = nn.SequentialCell(
             mint.nn.SiLU(), operations.Linear(hidden_size, n_mods * hidden_size, bias=True, dtype=dtype)
         )
         self.pre_only = pre_only
@@ -686,7 +686,7 @@ class FinalLayer(mint.nn.Cell):
             if (total_out_channels is None)
             else operations.Linear(hidden_size, total_out_channels, bias=True, dtype=dtype)
         )
-        self.adaLN_modulation = nn.Sequential(
+        self.adaLN_modulation = nn.SequentialCell(
             mint.nn.SiLU(), operations.Linear(hidden_size, 2 * hidden_size, bias=True, dtype=dtype)
         )
 
