@@ -58,7 +58,7 @@ class Mlp(mint.nn.Cell):
 class PatchEmbed(mint.nn.Cell):
     """ 2D Image to Patch Embedding
     """
-    dynamic_img_pad: ms.jit.Final[bool]
+    #dynamic_img_pad: ms.jit.Final[bool]
 
     def __init__(
             self,
