@@ -734,19 +734,19 @@ class SD21UNCLIP(BaseModel):
 #         return out
 
 
-# class SD3(BaseModel):
-#     def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
-#         super().__init__(model_config, model_type, device=device, unet_model=OpenAISignatureMMDITWrapper)
+class SD3(BaseModel):
+    def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
+        super().__init__(model_config, model_type, device=device, unet_model=OpenAISignatureMMDITWrapper)
 
-#     def encode_adm(self, **kwargs):
-#         return kwargs["pooled_output"]
+    def encode_adm(self, **kwargs):
+        return kwargs["pooled_output"]
 
-#     def extra_conds(self, **kwargs):
-#         out = super().extra_conds(**kwargs)
-#         cross_attn = kwargs.get("cross_attn", None)
-#         if cross_attn is not None:
-#             out['c_crossattn'] = comfy.conds.CONDRegular(cross_attn)
-#         return out
+    def extra_conds(self, **kwargs):
+        out = super().extra_conds(**kwargs)
+        cross_attn = kwargs.get("cross_attn", None)
+        if cross_attn is not None:
+            out['c_crossattn'] = comfy.conds.CONDRegular(cross_attn)
+        return out
 
 
 # class AuraFlow(BaseModel):
