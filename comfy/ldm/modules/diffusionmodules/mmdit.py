@@ -46,7 +46,7 @@ class Mlp(mint.nn.Cell):
         self.fc2 = linear_layer(hidden_features, out_features, bias=bias, dtype=dtype, device=device)
         self.drop2 = mint.nn.Dropout(drop_probs)
 
-    def forward(self, x):
+    def construct(self, x):
         x = self.fc1(x)
         x = self.act(x)
         x = self.drop1(x)
@@ -98,7 +98,7 @@ class PatchEmbed(mint.nn.Cell):
             self.proj = operations.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size, bias=bias, dtype=dtype, device=device)
         self.norm = norm_layer(embed_dim) if norm_layer else mint.nn.Identity()
 
-    def forward(self, x):
+    def construct(self, x):
         if self.dynamic_img_pad:
             x = comfy.ldm.common_dit.pad_to_patch_size(x, self.patch_size, padding_mode=self.padding_mode)
         x = self.proj(x)
@@ -221,7 +221,7 @@ class TimestepEmbedder(mint.nn.Cell):
         )
         self.frequency_embedding_size = frequency_embedding_size
 
-    def forward(self, t, dtype, **kwargs):
+    def construct(self, t, dtype, **kwargs):
         t_freq = timestep_embedding(t, self.frequency_embedding_size).to(dtype)
         t_emb = self.mlp(t_freq)
         return t_emb
@@ -240,7 +240,7 @@ class VectorEmbedder(mint.nn.Cell):
             operations.Linear(hidden_size, hidden_size, bias=True, dtype=dtype, device=device),
         )
 
-    def forward(self, x: ms.Tensor) -> ms.Tensor:
+    def construct(self, x: ms.Tensor) -> ms.Tensor:
         emb = self.mlp(x)
         return emb
 
@@ -311,7 +311,7 @@ class SelfAttention(mint.nn.Cell):
         x = self.proj_drop(x)
         return x
 
-    def forward(self, x: ms.Tensor) -> ms.Tensor:
+    def construct(self, x: ms.Tensor) -> ms.Tensor:
         q, k, v = self.pre_attention(x)
         x = optimized_attention(
             q, k, v, heads=self.num_heads
@@ -341,7 +341,7 @@ class RMSNorm(mint.nn.Cell):
         else:
             self.register_parameter("weight", None)
 
-    def forward(self, x):
+    def construct(self, x):
         return comfy.ldm.common_dit.rms_norm(x, self.weight, self.eps)
 
 
@@ -380,7 +380,7 @@ class SwiGLUFeedForward(mint.nn.Cell):
         self.w2 = mint.nn.Linear(hidden_dim, dim, bias=False)
         self.w3 = mint.nn.Linear(dim, hidden_dim, bias=False)
 
-    def forward(self, x):
+    def construct(self, x):
         return self.w2(mint.nn.functional.silu(self.w1(x)) * self.w3(x))
 
 
@@ -571,7 +571,7 @@ class DismantledBlock(mint.nn.Cell):
         )
         return x
 
-    def forward(self, x: ms.Tensor, c: ms.Tensor) -> ms.Tensor:
+    def construct(self, x: ms.Tensor, c: ms.Tensor) -> ms.Tensor:
         assert not self.pre_only
         if self.x_block_self_attn:
             qkv, qkv2, intermediates = self.pre_attention_x(x, c)
@@ -665,7 +665,7 @@ class JointBlock(mint.nn.Cell):
                                        x_block_self_attn=x_block_self_attn,
                                        **kwargs)
 
-    def forward(self, *args, **kwargs):
+    def construct(self, *args, **kwargs):
         return block_mixing(
             *args, context_block=self.context_block, x_block=self.x_block, **kwargs
         )
@@ -697,7 +697,7 @@ class FinalLayer(mint.nn.Cell):
             mint.nn.SiLU(), operations.Linear(hidden_size, 2 * hidden_size, bias=True, dtype=dtype, device=device)
         )
 
-    def forward(self, x: ms.Tensor, c: ms.Tensor) -> ms.Tensor:
+    def construct(self, x: ms.Tensor, c: ms.Tensor) -> ms.Tensor:
         shift, scale = self.adaLN_modulation(c).chunk(2, dim=1)
         x = modulate(self.norm_final(x), shift, scale)
         x = self.linear(x)
@@ -716,7 +716,7 @@ class SelfAttentionContext(mint.nn.Cell):
 
         self.proj = operations.Linear(inner_dim, dim, dtype=dtype, device=device)
 
-    def forward(self, x):
+    def construct(self, x):
         qkv = self.qkv(x)
         q, k, v = split_qkv(qkv, self.dim_head)
         x = optimized_attention(q.reshape(q.shape[0], q.shape[1], -1), k, v, heads=self.heads)
@@ -730,7 +730,7 @@ class ContextProcessorBlock(mint.nn.Cell):
         self.norm2 = operations.LayerNorm(context_size, elementwise_affine=False, eps=1e-6, dtype=dtype, device=device)
         self.mlp = Mlp(in_features=context_size, hidden_features=(context_size * 4), act_layer=lambda: mint.nn.GELU(approximate="tanh"), drop=0, dtype=dtype, device=device, operations=operations)
 
-    def forward(self, x):
+    def construct(self, x):
         x += self.attn(self.norm1(x))
         x += self.mlp(self.norm2(x))
         return x
@@ -741,7 +741,7 @@ class ContextProcessor(mint.nn.Cell):
         self.layers = mint.nn.CellList([ContextProcessorBlock(context_size, dtype=dtype, device=device, operations=operations) for i in range(num_layers)])
         self.norm = operations.LayerNorm(context_size, elementwise_affine=False, eps=1e-6, dtype=dtype, device=device)
 
-    def forward(self, x):
+    def construct(self, x):
         for i, l in enumerate(self.layers):
             x = l(x)
         return self.norm(x)
@@ -984,7 +984,7 @@ class MMDiT(mint.nn.Cell):
         x = self.final_layer(x, c_mod)  # (N, T, patch_size ** 2 * out_channels)
         return x
 
-    def forward(
+    def construct(
         self,
         x: ms.Tensor,
         t: ms.Tensor,
@@ -1020,7 +1020,7 @@ class MMDiT(mint.nn.Cell):
 
 
 class OpenAISignatureMMDITWrapper(MMDiT):
-    def forward(
+    def construct(
         self,
         x: ms.Tensor,
         timesteps: ms.Tensor,
@@ -1030,4 +1030,4 @@ class OpenAISignatureMMDITWrapper(MMDiT):
         transformer_options = {},
         **kwargs,
     ) -> ms.Tensor:
-        return super().forward(x, timesteps, context=context, y=y, control=control, transformer_options=transformer_options)
+        return super().construct(x, timesteps, context=context, y=y, control=control, transformer_options=transformer_options)
