@@ -664,11 +664,11 @@ class SD1Tokenizer:
         return getattr(self, self.clip).state_dict()
 
 class SD1CheckpointClipModel(SDClipModel):
-    def __init__(self, device=None, dtype=None, model_options={}):
-        super().__init__(device=None, return_projected_pooled=False, dtype=dtype, model_options=model_options)
+    def __init__(self, dtype=None, model_options={}):
+        super().__init__(return_projected_pooled=False, dtype=dtype, model_options=model_options)
 
 class SD1ClipModel(mindspore.nn.Cell):
-    def __init__(self, device=None, dtype=None, model_options={}, clip_name="l", clip_model=SD1CheckpointClipModel, name=None, **kwargs):
+    def __init__(self, dtype=None, model_options={}, clip_name="l", clip_model=SD1CheckpointClipModel, name=None, **kwargs):
         super().__init__()
 
         if name is not None:
@@ -680,7 +680,7 @@ class SD1ClipModel(mindspore.nn.Cell):
 
         clip_model = model_options.get("{}_class".format(self.clip), clip_model)
         model_options = {**model_options, "model_name": self.clip}
-        setattr(self, self.clip, clip_model(device=None, dtype=dtype, model_options=model_options, **kwargs))
+        setattr(self, self.clip, clip_model(dtype=dtype, model_options=model_options, **kwargs))
 
         self.dtypes = set()
         if dtype is not None:
