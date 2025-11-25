@@ -124,7 +124,7 @@ class CLIP:
         self.apply_hooks_to_conds = None
         self.layer_idx = None
         self.use_clip_schedule = False
-        logging.info("CLIP/text encoder model load device: {}, offload device: {}, current: {}, dtype: {}".format(None, None, params['device'], dtype))
+        logging.info("CLIP/text encoder model load device: {}, offload device: {}, current: {}, dtype: {}".format(None, None, None, dtype))
         self.tokenizer_options = {}
 
     def clone(self):
