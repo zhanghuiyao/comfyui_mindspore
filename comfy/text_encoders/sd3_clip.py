@@ -4,6 +4,7 @@ from transformers import T5TokenizerFast
 import comfy.text_encoders.t5
 
 import mindspore
+from mindspore import mint
 
 import os
 import comfy.model_management
@@ -114,15 +115,15 @@ class SD3ClipModel(mint.nn.Cell):
             if self.clip_l is not None:
                 lg_out, l_pooled = self.clip_l.encode_token_weights(token_weight_pairs_l)
             else:
-                l_pooled = torch.zeros((1, 768))
+                l_pooled = mint.zeros((1, 768))
 
             if self.clip_g is not None:
                 g_out, g_pooled = self.clip_g.encode_token_weights(token_weight_pairs_g)
                 if lg_out is not None:
                     cut_to = min(lg_out.shape[1], g_out.shape[1])
-                    lg_out = torch.cat([lg_out[:,:cut_to], g_out[:,:cut_to]], dim=-1)
+                    lg_out = mint.cat([lg_out[:,:cut_to], g_out[:,:cut_to]], dim=-1)
                 else:
-                    lg_out = torch.nn.functional.pad(g_out, (768, 0))
+                    lg_out = mint.nn.functional.pad(g_out, (768, 0))
             else:
                 g_out = None
                 g_pooled = mint.zeros((1, 1280))
@@ -139,7 +140,7 @@ class SD3ClipModel(mint.nn.Cell):
                 extra["attention_mask"] = t5_output[2]["attention_mask"]
 
             if lg_out is not None:
-                out = torch.cat([lg_out, t5_out], dim=-2)
+                out = mint.cat([lg_out, t5_out], dim=-2)
             else:
                 out = t5_out
 
