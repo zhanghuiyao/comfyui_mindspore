@@ -111,7 +111,7 @@ class CLIP:
             dtype = model_management.text_encoder_dtype(None)
 
         params['dtype'] = dtype
-        params['device'] = None  #model_options.get("initial_device", model_management.text_encoder_initial_device(load_device, offload_device, parameters * model_management.dtype_size(dtype)))
+        #params['device'] = None  model_options.get("initial_device", model_management.text_encoder_initial_device(load_device, offload_device, parameters * model_management.dtype_size(dtype)))
         params['model_options'] = model_options
 
         with no_init_parameters():
