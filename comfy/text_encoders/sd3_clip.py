@@ -61,7 +61,7 @@ class SD3Tokenizer:
         return {}
 
 class SD3ClipModel(mint.nn.Cell):
-    def __init__(self, clip_l=True, clip_g=True, t5=True, dtype_t5=None, t5_attention_mask=False dtype=None, model_options={}):
+    def __init__(self, clip_l=True, clip_g=True, t5=True, dtype_t5=None, t5_attention_mask=False,dtype=None, model_options={}):
         super().__init__()
         self.dtypes = set()
         if clip_l:
