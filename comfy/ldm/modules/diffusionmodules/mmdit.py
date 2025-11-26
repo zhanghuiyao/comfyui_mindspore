@@ -409,7 +409,6 @@ class DismantledBlock(mint.nn.Cell):
         super().__init__()
         assert attn_mode in self.ATTENTION_MODES
         if not rmsnorm:
-            print(f"hidden_size:{hidden_size}")
             self.norm1 = operations.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6, dtype=dtype)
         else:
             self.norm1 = RMSNorm(hidden_size, elementwise_affine=False, eps=1e-6)
@@ -502,7 +501,6 @@ class DismantledBlock(mint.nn.Cell):
                 ) = self.adaLN_modulation(
                     c
                 ).chunk(4, dim=1)
-            print(f"input shape:{x.shape}")
             qkv = self.attn.pre_attention(modulate(self.norm1(x), shift_msa, scale_msa))
             return qkv, (
                 x,
