@@ -42,7 +42,7 @@ from mindone.safetensors.mindspore import load_file
 def load_mindspore_file(ckpt, safe_load=False, return_metadata=False):
     metadata = None
     if ckpt.lower().endswith(".safetensors") or ckpt.lower().endswith(".sft"):
-        sd = load_file(ckpt)
+        sd = mindspore.load_checkpoint(ckpt, format="safetensors")
     elif ckpt.lower().endswith(".ckpt"):
         sd = mindspore.load_checkpoint(ckpt, format="ckpt")
     else:
