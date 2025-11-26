@@ -409,7 +409,7 @@ class DismantledBlock(mint.nn.Cell):
         super().__init__()
         assert attn_mode in self.ATTENTION_MODES
         if not rmsnorm:
-            print(f"hidden_size:{hidden_size})
+            print(f"hidden_size:{hidden_size}")
             self.norm1 = operations.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6, dtype=dtype)
         else:
             self.norm1 = RMSNorm(hidden_size, elementwise_affine=False, eps=1e-6)
