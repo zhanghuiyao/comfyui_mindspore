@@ -179,7 +179,7 @@ def get_1d_sincos_pos_embed_from_grid(embed_dim, pos):
     emb = np.concatenate([emb_sin, emb_cos], axis=1)  # (M, D)
     return emb
 
-def get_1d_sincos_pos_embed_from_grid_torch(embed_dim, pos, dtype=ms.float32):
+def get_1d_sincos_pos_embed_from_grid_mindspore(embed_dim, pos, dtype=ms.float32):
     omega = mint.arange(embed_dim // 2, dtype=dtype)
     omega /= embed_dim / 2.0
     omega = 1.0 / 10000**omega  # (D/2,)
@@ -195,8 +195,8 @@ def get_2d_sincos_pos_embed_mindspore(embed_dim, w, h, val_center=7.5, val_magni
     val_h = (h / small) * val_magnitude
     val_w = (w / small) * val_magnitude
     grid_h, grid_w = mint.meshgrid(mint.linspace(-val_h + val_center, val_h + val_center, h, dtype=dtype), mint.linspace(-val_w + val_center, val_w + val_center, w, dtype=dtype), indexing='ij')
-    emb_h = get_1d_sincos_pos_embed_from_grid_torch(embed_dim // 2, grid_h, dtype=dtype)
-    emb_w = get_1d_sincos_pos_embed_from_grid_torch(embed_dim // 2, grid_w, dtype=dtype)
+    emb_h = get_1d_sincos_pos_embed_from_grid_mindspore(embed_dim // 2, grid_h, dtype=dtype)
+    emb_w = get_1d_sincos_pos_embed_from_grid_mindspore(embed_dim // 2, grid_w, dtype=dtype)
     emb = mint.cat([emb_w, emb_h], dim=1)  # (H*W, D)
     return emb
 
@@ -831,7 +831,7 @@ class MMDiT(mint.nn.Cell):
 
         self.context_embedder = mint.nn.Identity()
         if context_embedder_config is not None:
-            if context_embedder_config["target"] == "torch.mint.nn.Linear":
+            if context_embedder_config["target"] == "mindspore.mint.nn.Linear":
                 self.context_embedder = operations.Linear(**context_embedder_config["params"], dtype=dtype)
 
         self.register_length = register_length
@@ -877,7 +877,7 @@ class MMDiT(mint.nn.Cell):
 
         if compile_core:
             assert False
-            self.forward_core_with_concat = torch.compile(self.forward_core_with_concat)
+            self.forward_core_with_concat = mint.compile(self.forward_core_with_concat)
 
     def cropped_pos_embed(self, hw):
         p = self.x_embedder.patch_size[0]
