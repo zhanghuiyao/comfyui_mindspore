@@ -109,6 +109,7 @@ class PatchEmbed(mint.nn.Cell):
 def modulate(x, shift, scale):
     if shift is None:
         shift = mint.zeros_like(scale)
+    print(shift.unsqueeze(1).shape, x.shape, 1+ scale.unsqueeze(1).shape)
     return ops.addcmul(shift.unsqueeze(1), x, 1+ scale.unsqueeze(1))
 
 
