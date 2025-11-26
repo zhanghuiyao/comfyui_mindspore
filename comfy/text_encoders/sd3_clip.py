@@ -154,10 +154,13 @@ class SD3ClipModel(mint.nn.Cell):
 
     def load_sd(self, sd):
         if "text_model.encoder.layers.30.mlp.fc1.weight" in sd:
+            sd = {f"clip_g.transformer.{k}": v for k, v in sd.items()}
             return self.clip_g.load_sd(sd)
         elif "text_model.encoder.layers.1.mlp.fc1.weight" in sd:
+            sd = {f"clip_l.transformer.{k}": v for k, v in sd.items()}
             return self.clip_l.load_sd(sd)
         else:
+            sd = {f"t5xxl.transformer.{k}": v for k, v in sd.items()}
             return self.t5xxl.load_sd(sd)
 
 def sd3_clip(clip_l=True, clip_g=True, t5=True, dtype_t5=None, t5xxl_scaled_fp8=None, t5_attention_mask=False):
