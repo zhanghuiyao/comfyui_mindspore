@@ -190,7 +190,7 @@ def get_1d_sincos_pos_embed_from_grid_torch(embed_dim, pos, dtype=ms.float32):
     emb = mint.cat([emb_sin, emb_cos], dim=1)  # (M, D)
     return emb
 
-def get_2d_sincos_pos_embed_torch(embed_dim, w, h, val_center=7.5, val_magnitude=7.5, dtype=ms.float32):
+def get_2d_sincos_pos_embed_mindspore(embed_dim, w, h, val_center=7.5, val_magnitude=7.5, dtype=ms.float32):
     small = min(h, w)
     val_h = (h / small) * val_magnitude
     val_w = (w / small) * val_magnitude
@@ -883,14 +883,14 @@ class MMDiT(mint.nn.Cell):
         h = (h + 1) // p
         w = (w + 1) // p
         if self.pos_embed is None:
-            return get_2d_sincos_pos_embed_torch(self.hidden_size, w, h)
+            return get_2d_sincos_pos_embed_mindspore(self.hidden_size, w, h)
         assert self.pos_embed_max_size is not None
         assert h <= self.pos_embed_max_size, (h, self.pos_embed_max_size)
         assert w <= self.pos_embed_max_size, (w, self.pos_embed_max_size)
         top = (self.pos_embed_max_size - h) // 2
         left = (self.pos_embed_max_size - w) // 2
         spatial_pos_embed = rearrange(
-            self.pos_embed,
+            np.array(self.pos_embed),
             "1 (h w) c -> 1 h w c",
             h=self.pos_embed_max_size,
             w=self.pos_embed_max_size,
@@ -898,11 +898,11 @@ class MMDiT(mint.nn.Cell):
         spatial_pos_embed = spatial_pos_embed[:, top : top + h, left : left + w, :]
         spatial_pos_embed = rearrange(spatial_pos_embed, "1 h w c -> 1 (h w) c")
         # print(spatial_pos_embed, top, left, h, w)
-        # # t = get_2d_sincos_pos_embed_torch(self.hidden_size, w, h, 7.875, 7.875) #matches exactly for 1024 res
-        # t = get_2d_sincos_pos_embed_torch(self.hidden_size, w, h, 7.5, 7.5) #scales better
+        # # t = get_2d_sincos_pos_embed_mindspore(self.hidden_size, w, h, 7.875, 7.875) #matches exactly for 1024 res
+        # t = get_2d_sincos_pos_embed_mindspore(self.hidden_size, w, h, 7.5, 7.5) #scales better
         # # print(t)
         # return t
-        return spatial_pos_embed
+        return ms.Tensor(spatial_pos_embed)
 
     def unpatchify(self, x, hw=None):
         """
