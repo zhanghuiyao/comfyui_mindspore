@@ -570,11 +570,11 @@ class DismantledBlock(mint.nn.Cell):
         assert not self.pre_only
         if self.x_block_self_attn:
             qkv, qkv2, intermediates = self.pre_attention_x(x, c)
-            attn, _ = optimized_attention(
+            attn = optimized_attention(
                 qkv[0], qkv[1], qkv[2],
                 num_heads=self.attn.num_heads,
             )
-            attn2, _ = optimized_attention(
+            attn2 = optimized_attention(
                 qkv2[0], qkv2[1], qkv2[2],
                 num_heads=self.attn2.num_heads,
             )
