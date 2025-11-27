@@ -109,7 +109,7 @@ class PatchEmbed(mint.nn.Cell):
 def modulate(x, shift, scale):
     if shift is None:
         shift = mint.zeros_like(scale)
-    return mint.addcmul(shift.unsqueeze(1), x, 1+ scale.unsqueeze(1))
+    return x * (1 + scale.unsqueeze(1)) + shift.unsqueeze(1)
 
 
 #################################################################################
@@ -572,11 +572,11 @@ class DismantledBlock(mint.nn.Cell):
             qkv, qkv2, intermediates = self.pre_attention_x(x, c)
             attn = optimized_attention(
                 qkv[0], qkv[1], qkv[2],
-                num_heads=self.attn.num_heads,
+                heads=self.attn.num_heads,
             )
             attn2 = optimized_attention(
                 qkv2[0], qkv2[1], qkv2[2],
-                num_heads=self.attn2.num_heads,
+                heads=self.attn2.num_heads,
             )
             return self.post_attention_x(attn, attn2, *intermediates)
         else:
