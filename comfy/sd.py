@@ -700,6 +700,11 @@ class VAE:
 
     def decode(self, samples_in, vae_options={}):
         self.throw_exception_if_invalid()
+        
+        # Debug logging: output latent statistics before decoding
+        logging.info(f"[VAE Decode] Input latent shape: {samples_in.shape}, dtype: {samples_in.dtype}")
+        logging.info(f"[VAE Decode] Latent statistics - min: {samples_in.min().item():.4f}, max: {samples_in.max().item():.4f}, mean: {samples_in.mean().item():.4f}, std: {samples_in.std().item():.4f}")
+        
         pixel_samples = None
         do_tile = False
         try:
@@ -735,6 +740,11 @@ class VAE:
                 pixel_samples = self.decode_tiled_3d(samples_in, tile_x=tile, tile_y=tile, overlap=(1, overlap, overlap))
 
         pixel_samples = pixel_samples.movedim(1,-1)
+        
+        # Debug logging: output decoded image statistics
+        logging.info(f"[VAE Decode] Output image shape: {pixel_samples.shape}, dtype: {pixel_samples.dtype}")
+        logging.info(f"[VAE Decode] Image statistics - min: {pixel_samples.min().item():.4f}, max: {pixel_samples.max().item():.4f}, mean: {pixel_samples.mean().item():.4f}, std: {pixel_samples.std().item():.4f}")
+        
         return pixel_samples
 
     def decode_tiled(self, samples, tile_x=None, tile_y=None, overlap=None, tile_t=None, overlap_t=None):
