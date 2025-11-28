@@ -6,13 +6,12 @@ from typing import Dict, Optional, List
 import numpy as np
 import mindspore as ms
 from mindspore import mint, ops, nn
-from ..attention import optimized_attention,attention_basic
+from ..attention import optimized_attention
 from einops import rearrange, repeat
 from .util import timestep_embedding
 import comfy.ops
 import comfy.ldm.common_dit
 
-optimized_attention = attention_basic
 
 def default(x, y):
     if x is not None:
