@@ -261,7 +261,15 @@ class disable_weight_init:
             else:
                 weight = None
                 bias = None
-            x = mint.functional.layer_norm(input, self.normalized_shape, weight, bias, self.eps)
+            # x = mint.functional.layer_norm(input, self.normalized_shape, weight, bias, self.eps)
+            # Manual implementation to ensure consistency
+            u = input.mean(-1, keep_dims=True)
+            s = (input - u).pow(2).mean(-1, keep_dims=True)
+            x = (input - u) / mint.sqrt(s + self.eps)
+            if weight is not None:
+                x = x * weight
+            if bias is not None:
+                x = x + bias
             uncast_bias_weight(self, weight, bias, None)
             return x
 
