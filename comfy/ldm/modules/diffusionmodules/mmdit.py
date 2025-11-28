@@ -12,7 +12,6 @@ from .util import timestep_embedding
 import comfy.ops
 import comfy.ldm.common_dit
 
-
 def default(x, y):
     if x is not None:
         return x
@@ -1022,4 +1021,5 @@ class OpenAISignatureMMDITWrapper(MMDiT):
         transformer_options = {},
         **kwargs,
     ) -> ms.Tensor:
+        print(f"x:{x}")
         return super().construct(x, timesteps, context=context, y=y, control=control, transformer_options=transformer_options)
