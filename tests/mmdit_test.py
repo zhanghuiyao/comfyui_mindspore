@@ -40,8 +40,8 @@ def create_test_mmdit(
     context_embedder_config = {
         "target": "mindspore.mint.nn.Linear",
         "params": {
-            "in_channels": 4096,  # CLIP-L (768) + CLIP-G (1280) + T5 (2048) = 4096
-            "out_channels": 1536,  # hidden dimension
+            "in_features": 4096,  # CLIP-L (768) + CLIP-G (1280) + T5 (2048) = 4096
+            "out_features": 1536,  # hidden dimension
         }
     }
     
