@@ -276,6 +276,7 @@ class disable_weight_init:
         def construct(self, *args, **kwargs):
             run_every_op()
             if self.comfy_cast_weights or len(self.weight_function) > 0 or len(self.bias_function) > 0:
+                print("aha!!!!!!")
                 return self.forward_comfy_cast_weights(*args, **kwargs)
             else:
                 return super().construct(*args, **kwargs)
