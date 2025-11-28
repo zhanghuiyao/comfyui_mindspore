@@ -38,7 +38,7 @@ def create_test_mmdit(
     # SD3.5M 的配置
     adm_in_channels = 2048  # pooled text embedding dimension
     context_embedder_config = {
-        "target": "comfy.ldm.modules.encoders.modules.ContextEmbedder",
+        "target": "mindspore.mint.nn.Linear",
         "params": {
             "in_channels": 4096,  # CLIP-L (768) + CLIP-G (1280) + T5 (2048) = 4096
             "out_channels": 1536,  # hidden dimension
