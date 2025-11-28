@@ -1021,5 +1021,4 @@ class OpenAISignatureMMDITWrapper(MMDiT):
         transformer_options = {},
         **kwargs,
     ) -> ms.Tensor:
-        print(f"x:{x}")
         return super().construct(x, timesteps, context=context, y=y, control=control, transformer_options=transformer_options)
