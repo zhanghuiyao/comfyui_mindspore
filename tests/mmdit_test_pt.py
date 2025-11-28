@@ -76,6 +76,9 @@ def create_test_mmdit(
         device=device,
         dtype=torch.float32,
     )
+
+    for p in model.parameters():
+        nn.init.constant_(p, 0.01)
     
     model.eval()
     model = model.to(device)
