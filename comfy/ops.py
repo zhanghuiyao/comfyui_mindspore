@@ -245,7 +245,16 @@ class disable_weight_init:
             if self.comfy_cast_weights or len(self.weight_function) > 0 or len(self.bias_function) > 0:
                 return self.forward_comfy_cast_weights(*args, **kwargs)
             else:
-                return super().construct(*args, **kwargs)
+                # 直接进行 Layer 归一化，不调用 super().construct()
+                input = args[0]
+                u = input.mean(-1, keep_dims=True)
+                s = (input - u).pow(2).mean(-1, keep_dims=True)
+                x = (input - u) / mint.sqrt(s + self.eps)
+                if self.weight is not None:
+                    x = x * self.weight
+                if self.bias is not None:
+                    x = x + self.bias
+                return x
 
     class LayerNorm(mint.nn.LayerNorm, CastWeightBiasOp):
         def __init__(self, *args, **kwargs):
