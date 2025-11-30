@@ -245,16 +245,7 @@ class disable_weight_init:
             if self.comfy_cast_weights or len(self.weight_function) > 0 or len(self.bias_function) > 0:
                 return self.forward_comfy_cast_weights(*args, **kwargs)
             else:
-                # 直接进行 Layer 归一化，不调用 super().construct()
-                input = args[0]
-                u = input.mean(-1, keep_dims=True)
-                s = (input - u).pow(2).mean(-1, keep_dims=True)
-                x = (input - u) / mint.sqrt(s + self.eps)
-                if self.weight is not None:
-                    x = x * self.weight
-                if self.bias is not None:
-                    x = x + self.bias
-                return x
+                return super().construct(*args, **kwargs)
 
     class LayerNorm(mint.nn.LayerNorm, CastWeightBiasOp):
         def __init__(self, *args, **kwargs):
@@ -270,15 +261,7 @@ class disable_weight_init:
             else:
                 weight = None
                 bias = None
-            # x = mint.functional.layer_norm(input, self.normalized_shape, weight, bias, self.eps)
-            # Manual implementation to ensure consistency
-            u = input.mean(-1, keep_dims=True)
-            s = (input - u).pow(2).mean(-1, keep_dims=True)
-            x = (input - u) / mint.sqrt(s + self.eps)
-            if weight is not None:
-                x = x * weight
-            if bias is not None:
-                x = x + bias
+            x = mint.functional.layer_norm(input, self.normalized_shape, weight, bias, self.eps)
             uncast_bias_weight(self, weight, bias, None)
             return x
 
@@ -287,25 +270,7 @@ class disable_weight_init:
             if self.comfy_cast_weights or len(self.weight_function) > 0 or len(self.bias_function) > 0:
                 return self.forward_comfy_cast_weights(*args, **kwargs)
             else:
-                inputs = args[0]
-                orig_dtype = inputs.dtype
-            
-                if orig_dtype == mindspore.float32:
-                    inputs = inputs.to(mindspore.bfloat16)
-                
-                u = inputs.mean(-1, keep_dims=True)
-                s = (inputs - u).pow(2).mean(-1, keep_dims=True)
-                x = (inputs - u) / mint.sqrt(s + self.eps)
-                
-                if self.weight is not None:
-                    weight = self.weight.to(x.dtype) if self.weight.dtype != x.dtype else self.weight
-                    x = x * weight
-                if self.bias is not None:
-                    bias = self.bias.to(x.dtype) if self.bias.dtype != x.dtype else self.bias
-                    x = x + bias
-
-                return x.to(orig_dtype)
-
+                return super().construct(*args, **kwargs)
 
     class RMSNorm(comfy.rmsnorm.RMSNorm, CastWeightBiasOp):
         def __init__(self, *args, **kwargs):
