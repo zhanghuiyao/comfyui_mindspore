@@ -285,10 +285,27 @@ class disable_weight_init:
         def construct(self, *args, **kwargs):
             run_every_op()
             if self.comfy_cast_weights or len(self.weight_function) > 0 or len(self.bias_function) > 0:
-                print("aha!!!!!!")
                 return self.forward_comfy_cast_weights(*args, **kwargs)
             else:
-                return super().construct(*args, **kwargs)
+                inputs = args[0]
+                orig_dtype = inputs.dtype
+            
+                if orig_dtype == mindspore.float32:
+                    inputs = inputs.to(mindspore.bfloat16)
+                
+                u = inputs.mean(-1, keep_dims=True)
+                s = (inputs - u).pow(2).mean(-1, keep_dims=True)
+                x = (inputs - u) / mint.sqrt(s + self.eps)
+                
+                if self.weight is not None:
+                    weight = self.weight.to(x.dtype) if self.weight.dtype != x.dtype else self.weight
+                    x = x * weight
+                if self.bias is not None:
+                    bias = self.bias.to(x.dtype) if self.bias.dtype != x.dtype else self.bias
+                    x = x + bias
+
+                return x.to(orig_dtype)
+
 
     class RMSNorm(comfy.rmsnorm.RMSNorm, CastWeightBiasOp):
         def __init__(self, *args, **kwargs):
