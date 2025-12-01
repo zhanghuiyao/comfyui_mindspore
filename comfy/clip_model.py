@@ -147,7 +147,7 @@ class CLIPTextModel(mindspore.nn.Cell):
     def __init__(self, config_dict, dtype, operations):
         super().__init__()
         self.num_layers = config_dict["num_hidden_layers"]
-        self.text_model = CLIPTextModel_(config_dict, dtype, None, operations)
+        self.text_model = CLIPTextModel_(config_dict, dtype, operations)
         embed_dim = config_dict["hidden_size"]
         self.text_projection = operations.Linear(embed_dim, embed_dim, bias=False, dtype=dtype)
         self.dtype = dtype
