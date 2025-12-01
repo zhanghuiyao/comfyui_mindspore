@@ -526,9 +526,8 @@ class DismantledBlock(mint.nn.Cell):
     def post_attention(self, attn, x, gate_msa, shift_mlp, scale_mlp, gate_mlp):
         assert not self.pre_only
         x = x + gate_msa.unsqueeze(1) * self.attn.post_attention(attn)
-        tmp = self.norm2(x.to(ms.bfloat16))
         x = x + gate_mlp.unsqueeze(1) * self.mlp(
-            modulate(tmp.to(x.dtype), shift_mlp, scale_mlp)
+            modulate(self.norm2(x), shift_mlp, scale_mlp)
         )
         return x
 
@@ -562,9 +561,8 @@ class DismantledBlock(mint.nn.Cell):
         attn1 = self.attn.post_attention(attn)
         attn2 = self.attn2.post_attention(attn2)
         x = gate_cat(x, gate_msa, gate_msa2, attn1, attn2)
-        tmp = self.norm2(x.to(ms.bfloat16))
         x = x + gate_mlp.unsqueeze(1) * self.mlp(
-            modulate(tmp.to(x.dtype), shift_mlp, scale_mlp)
+            modulate(self.norm2(x), shift_mlp, scale_mlp)
         )
         return x
 
@@ -728,8 +726,7 @@ class ContextProcessorBlock(mint.nn.Cell):
 
     def construct(self, x):
         x += self.attn(self.norm1(x))
-        tmp = self.norm2(x.to(ms.bfloat16))
-        x += self.mlp(tmp.to(x.dtype))
+        x += self.mlp(self.norm2(x))
         return x
 
 class ContextProcessor(mint.nn.Cell):
