@@ -124,7 +124,7 @@ class CLIP:
         self.apply_hooks_to_conds = None
         self.layer_idx = None
         self.use_clip_schedule = False
-        .info("CLIP/text encoder model load device: {}, offload device: {}, current: {}, dtype: {}".format(None, None, None, dtype))
+        logging.info("CLIP/text encoder model load device: {}, offload device: {}, current: {}, dtype: {}".format(None, None, None, dtype))
         self.tokenizer_options = {}
 
     def clone(self):
@@ -604,7 +604,7 @@ class VAE:
         self.output_device = None  #model_management.intermediate_device()
 
         self.patcher = comfy.model_patcher.ModelPatcher(self.first_stage_model)
-        .info("VAE load device: {}, offload device: {}, dtype: {}".format(self.device, offload_device, self.vae_dtype))
+        logging.info("VAE load device: {}, offload device: {}, dtype: {}".format(self.device, offload_device, self.vae_dtype))
         self.model_size()
 
     def model_size(self):
