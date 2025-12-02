@@ -1,4 +1,3 @@
-
 """
     This file is part of ComfyUI.
     Copyright (C) 2024 Comfy
