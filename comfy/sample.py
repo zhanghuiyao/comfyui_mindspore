@@ -9,17 +9,13 @@ import logging
 import comfy.nested_tensor
 
 def prepare_noise_inner(latent_image, generator, noise_inds=None):
-    # Create fixed noise for debugging (all ones)
-    # To use random noise, replace mint.ones with mint.randn
     if noise_inds is None:
-        # return mint.randn(latent_image.shape, dtype=latent_image.dtype, generator=generator)
-        return mint.ones(latent_image.shape, dtype=latent_image.dtype)
+        return mint.randn(latent_image.shape, dtype=latent_image.dtype, generator=generator)
 
     unique_inds, inverse = np.unique(noise_inds, return_inverse=True)
     noises = []
     for i in range(unique_inds[-1]+1):
-        # noise = mint.randn([1] + list(latent_image.shape)[1:], dtype=latent_image.dtype, generator=generator)
-        noise = mint.ones([1] + list(latent_image.shape)[1:], dtype=latent_image.dtype)
+        noise = mint.randn([1] + list(latent_image.shape)[1:], dtype=latent_image.dtype, generator=generator)
         if i in unique_inds:
             noises.append(noise)
     noises = [noises[i] for i in inverse]
