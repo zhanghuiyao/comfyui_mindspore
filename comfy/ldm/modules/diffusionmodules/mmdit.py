@@ -883,27 +883,7 @@ class MMDiT(mint.nn.Cell):
         # patched size
         h = (h + 1) // p
         w = (w + 1) // p
-        if self.pos_embed is None:
-            return get_2d_sincos_pos_embed_mindspore(self.hidden_size, w, h)
-        assert self.pos_embed_max_size is not None
-        assert h <= self.pos_embed_max_size, (h, self.pos_embed_max_size)
-        assert w <= self.pos_embed_max_size, (w, self.pos_embed_max_size)
-        top = (self.pos_embed_max_size - h) // 2
-        left = (self.pos_embed_max_size - w) // 2
-        spatial_pos_embed = rearrange(
-            np.array(self.pos_embed),
-            "1 (h w) c -> 1 h w c",
-            h=self.pos_embed_max_size,
-            w=self.pos_embed_max_size,
-        )
-        spatial_pos_embed = spatial_pos_embed[:, top : top + h, left : left + w, :]
-        spatial_pos_embed = rearrange(spatial_pos_embed, "1 h w c -> 1 (h w) c")
-        # print(spatial_pos_embed, top, left, h, w)
-        # # t = get_2d_sincos_pos_embed_mindspore(self.hidden_size, w, h, 7.875, 7.875) #matches exactly for 1024 res
-        # t = get_2d_sincos_pos_embed_mindspore(self.hidden_size, w, h, 7.5, 7.5) #scales better
-        # # print(t)
-        # return t
-        return ms.Tensor(spatial_pos_embed)
+        return get_2d_sincos_pos_embed_mindspore(self.hidden_size, w, h)
 
     def unpatchify(self, x, hw=None):
         """
