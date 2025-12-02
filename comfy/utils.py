@@ -1,3 +1,4 @@
+
 """
     This file is part of ComfyUI.
     Copyright (C) 2024 Comfy
@@ -36,8 +37,6 @@ DISABLE_MMAP = args.disable_mmap
 
 ALWAYS_SAFE_LOAD = False
 
-
-from mindone.safetensors.mindspore import load_file
 
 def load_mindspore_file(ckpt, safe_load=False, return_metadata=False):
     metadata = None
