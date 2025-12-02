@@ -272,7 +272,6 @@ class disable_weight_init:
             else:
                 return super().construct(*args, **kwargs)
 
-
     class RMSNorm(comfy.rmsnorm.RMSNorm, CastWeightBiasOp):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
