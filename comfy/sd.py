@@ -91,7 +91,7 @@ import comfy.ldm.flux.redux
 #     k1 = set(k1)
 #     for x in loaded:
 #         if (x not in k) and (x not in k1):
-#             logging.warning("NOT LOADED {}".format(x))
+#             .warning("NOT LOADED {}".format(x))
 
 #     return (new_modelpatcher, new_clip)
 
@@ -124,7 +124,7 @@ class CLIP:
         self.apply_hooks_to_conds = None
         self.layer_idx = None
         self.use_clip_schedule = False
-        logging.info("CLIP/text encoder model load device: {}, offload device: {}, current: {}, dtype: {}".format(None, None, None, dtype))
+        .info("CLIP/text encoder model load device: {}, offload device: {}, current: {}, dtype: {}".format(None, None, None, dtype))
         self.tokenizer_options = {}
 
     def clone(self):
@@ -580,7 +580,7 @@ class VAE:
                 # self.crop_input = False
                 raise NotImplementedError
             else:
-                logging.warning("WARNING: No VAE weights detected, VAE not initalized.")
+                .warning("WARNING: No VAE weights detected, VAE not initalized.")
                 self.first_stage_model = None
                 return
         else:
@@ -589,10 +589,10 @@ class VAE:
 
         m, u = self.first_stage_model.load_state_dict(sd, strict=False)
         if len(m) > 0:
-            logging.warning("Missing VAE keys {}".format(m))
+            .warning("Missing VAE keys {}".format(m))
 
         if len(u) > 0:
-            logging.debug("Leftover VAE keys {}".format(u))
+            .debug("Leftover VAE keys {}".format(u))
 
         device = None  #model_management.vae_device()
         self.device = None
@@ -604,7 +604,7 @@ class VAE:
         self.output_device = None  #model_management.intermediate_device()
 
         self.patcher = comfy.model_patcher.ModelPatcher(self.first_stage_model)
-        logging.info("VAE load device: {}, offload device: {}, dtype: {}".format(self.device, offload_device, self.vae_dtype))
+        .info("VAE load device: {}, offload device: {}, dtype: {}".format(self.device, offload_device, self.vae_dtype))
         self.model_size()
 
     def model_size(self):
@@ -700,11 +700,6 @@ class VAE:
 
     def decode(self, samples_in, vae_options={}):
         self.throw_exception_if_invalid()
-        
-        # Debug logging: output latent statistics before decoding
-        logging.info(f"[VAE Decode] Input latent shape: {samples_in.shape}, dtype: {samples_in.dtype}")
-        logging.info(f"[VAE Decode] Latent statistics - min: {samples_in.min().item():.4f}, max: {samples_in.max().item():.4f}, mean: {samples_in.mean().item():.4f}, std: {samples_in.std().item():.4f}")
-        
         pixel_samples = None
         do_tile = False
         try:
@@ -740,11 +735,6 @@ class VAE:
                 pixel_samples = self.decode_tiled_3d(samples_in, tile_x=tile, tile_y=tile, overlap=(1, overlap, overlap))
 
         pixel_samples = pixel_samples.movedim(1,-1)
-        
-        # Debug logging: output decoded image statistics
-        logging.info(f"[VAE Decode] Output image shape: {pixel_samples.shape}, dtype: {pixel_samples.dtype}")
-        logging.info(f"[VAE Decode] Image statistics - min: {pixel_samples.min().item():.4f}, max: {pixel_samples.max().item():.4f}, mean: {pixel_samples.mean().item():.4f}, std: {pixel_samples.std().item():.4f}")
-        
         return pixel_samples
 
     def decode_tiled(self, samples, tile_x=None, tile_y=None, overlap=None, tile_t=None, overlap_t=None):
