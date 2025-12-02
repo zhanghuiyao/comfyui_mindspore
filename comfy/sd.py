@@ -91,7 +91,7 @@ import comfy.ldm.flux.redux
 #     k1 = set(k1)
 #     for x in loaded:
 #         if (x not in k) and (x not in k1):
-#             .warning("NOT LOADED {}".format(x))
+#             logging.warning("NOT LOADED {}".format(x))
 
 #     return (new_modelpatcher, new_clip)
 
@@ -580,7 +580,7 @@ class VAE:
                 # self.crop_input = False
                 raise NotImplementedError
             else:
-                .warning("WARNING: No VAE weights detected, VAE not initalized.")
+                logging.warning("WARNING: No VAE weights detected, VAE not initalized.")
                 self.first_stage_model = None
                 return
         else:
@@ -589,10 +589,10 @@ class VAE:
 
         m, u = self.first_stage_model.load_state_dict(sd, strict=False)
         if len(m) > 0:
-            .warning("Missing VAE keys {}".format(m))
+            logging.warning("Missing VAE keys {}".format(m))
 
         if len(u) > 0:
-            .debug("Leftover VAE keys {}".format(u))
+            logging.debug("Leftover VAE keys {}".format(u))
 
         device = None  #model_management.vae_device()
         self.device = None
