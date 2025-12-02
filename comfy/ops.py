@@ -270,27 +270,8 @@ class disable_weight_init:
             if self.comfy_cast_weights or len(self.weight_function) > 0 or len(self.bias_function) > 0:
                 return self.forward_comfy_cast_weights(*args, **kwargs)
             else:
-                # 直接进行 Layer 归一化，不调用 super().construct()
-                inputs = args[0]
-                orig_dtype = inputs.dtype
-                
-                # 转换到 bfloat16 以降低精度
-                if orig_dtype == mindspore.float32:
-                    inputs = inputs.to(mindspore.bfloat16)
-                
-                u = inputs.mean(-1, keep_dims=True)
-                s = (inputs - u).pow(2).mean(-1, keep_dims=True)
-                x = (inputs - u) / mint.sqrt(s + self.eps)
-                
-                if self.weight is not None:
-                    weight = self.weight.to(x.dtype) if self.weight.dtype != x.dtype else self.weight
-                    x = x * weight
-                if self.bias is not None:
-                    bias = self.bias.to(x.dtype) if self.bias.dtype != x.dtype else self.bias
-                    x = x + bias
-                
-                # 转回原始精度
-                return x.to(orig_dtype)
+                return super().construct(*args, **kwargs)
+
 
     class RMSNorm(comfy.rmsnorm.RMSNorm, CastWeightBiasOp):
         def __init__(self, *args, **kwargs):
