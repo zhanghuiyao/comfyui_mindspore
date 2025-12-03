@@ -1,6 +1,7 @@
 import numpy as np
 
 import mindspore
+from mindspore._c_expression import MSContext # pylint: disable=no-name-in-module, import-error
 
 _DTYPE_2_STRING = {
     mindspore.float16: "float16",
@@ -106,3 +107,7 @@ def dtype_to_str(dtype):
 def str_to_dtype(dtype):
     return _STRING_2_DTYPE.get(dtype, "others dtype")
 
+
+def is_ascend_310p():
+    SOC = MSContext.get_instance().get_ascend_soc_version()
+    return SOC in ["ascend310p",]

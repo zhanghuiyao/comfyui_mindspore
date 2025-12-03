@@ -1,3 +1,6 @@
+# replace api for 310p
+import mindspore_patch
+
 import comfy.options
 comfy.options.enable_args_parsing()
 
@@ -369,8 +372,9 @@ if __name__ == "__main__":
     if sys.version_info.major == 3 and sys.version_info.minor < 10:
         logging.warning("WARNING: You are using a python version older than 3.10, please upgrade to a newer one. 3.12 and above is recommended.")
 
-    # import mindspore
-    # mindspore.launch_blocking()
+    # zhy_test
+    import mindspore
+    mindspore.launch_blocking()
 
     event_loop, _, start_all_func = start_comfyui()
     try:

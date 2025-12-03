@@ -50,11 +50,15 @@ pip install -r requirements.txt
 
 ```shell
 python main.py --listen 0.0.0.0 --port 9001
+
+# run on ascend 310p
+python main.py --listen 0.0.0.0 --port 9001 --force-fp16 --fp16-vae
 ```
 
-### performance, example as flux:
+### performance:
 
-| models   | image size | infer_steps  | time cost |
-|:-------:|:-------:|:-------:|:-------:|
-| flux | 512*512 | 20 | ~6s |
-| qwen_image | 512*512 | 20 | ~13s
+| chip | models   | image size | infer_steps  | time cost |
+|:-------:|:-------:|:-------:|:-------:|:-------:|
+| 910B | flux | 512*512 | 20 | ~6s |
+| 910B | qwen_image | 512*512 | 20 | ~13s
+| 310P | flux | 512*512 | 20 | ~60s |
