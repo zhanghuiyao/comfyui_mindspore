@@ -79,7 +79,7 @@ class SD3ClipModel(mint.nn.Cell):
         if t5:
             dtype_t5 = comfy.model_management.pick_weight_dtype(dtype_t5, dtype)
             self.t5_attention_mask = t5_attention_mask
-            self.t5xxl = T5XXLModel(device=device, dtype=dtype_t5, model_options=model_options, attention_mask=self.t5_attention_mask)
+            self.t5xxl = T5XXLModel(dtype=dtype_t5, model_options=model_options, attention_mask=self.t5_attention_mask)
             self.dtypes.add(dtype_t5)
         else:
             self.t5xxl = None
