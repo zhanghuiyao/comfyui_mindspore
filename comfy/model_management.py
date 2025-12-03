@@ -29,7 +29,7 @@ import gc
 import mindspore
 from mindspore import mint
 
-from mindspore_patch.utils import dtype_to_size
+from mindspore_patch.utils import dtype_to_size, is_ascend_310p
 
 
 class VRAMState(Enum):
@@ -536,6 +536,9 @@ def unet_dtype(device=None, model_params=0, supported_dtypes=[mindspore.float16,
 
 # None means no manual cast
 def unet_manual_cast(weight_dtype, inference_device, supported_dtypes=[mindspore.float16, mindspore.bfloat16, mindspore.float32]):
+    if is_ascend_310p() and mindspore.bfloat16 in supported_dtypes:
+        supported_dtypes.pop(supported_dtypes.index(mindspore.bfloat16))
+
     if weight_dtype == mindspore.float32 or weight_dtype == mindspore.float64:
         return None
 
