@@ -62,7 +62,7 @@ class ModelSamplingDiscrete:
     CATEGORY = "advanced/model"
 
     def patch(self, model, sampling, zsnr):
-        m = model.copy()
+        m = model.clone()
 
         sampling_base = comfy.model_sampling.ModelSamplingDiscrete
         if sampling == "eps":
@@ -98,7 +98,7 @@ class ModelSamplingStableCascade:
     CATEGORY = "advanced/model"
 
     def patch(self, model, shift):
-        m = model.copy()
+        m = model.clone()
 
         sampling_base = comfy.model_sampling.StableCascadeSampling
         sampling_type = comfy.model_sampling.EPS
@@ -124,7 +124,7 @@ class ModelSamplingSD3:
     CATEGORY = "advanced/model"
 
     def patch(self, model, shift, multiplier=1000):
-        m = model.copy()
+        m = model.clone()
 
         sampling_base = comfy.model_sampling.ModelSamplingDiscreteFlow
         sampling_type = comfy.model_sampling.CONST
@@ -165,7 +165,7 @@ class ModelSamplingFlux:
     CATEGORY = "advanced/model"
 
     def patch(self, model, max_shift, base_shift, width, height):
-        m = model.copy()
+        m = model.clone()
 
         x1 = 256
         x2 = 4096
@@ -200,7 +200,7 @@ class ModelSamplingContinuousEDM:
     CATEGORY = "advanced/model"
 
     def patch(self, model, sampling, sigma_max, sigma_min):
-        m = model.copy()
+        m = model.clone()
 
         sampling_base = comfy.model_sampling.ModelSamplingContinuousEDM
         latent_format = None
@@ -245,7 +245,7 @@ class ModelSamplingContinuousV:
     CATEGORY = "advanced/model"
 
     def patch(self, model, sampling, sigma_max, sigma_min):
-        m = model.copy()
+        m = model.clone()
 
         sigma_data = 1.0
         if sampling == "v_prediction":
@@ -294,7 +294,7 @@ class RescaleCFG:
 
             return x_orig - (x - x_final * sigma / (sigma * sigma + 1.0) ** 0.5)
 
-        m = model.copy()
+        m = model.clone()
         m.set_model_sampler_cfg_function(rescale_cfg)
         return (m, )
 
