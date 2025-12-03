@@ -680,7 +680,7 @@ class SD1ClipModel(mindspore.nn.Cell):
 
         clip_model = model_options.get("{}_class".format(self.clip), clip_model)
         model_options = {**model_options, "model_name": self.clip}
-        setattr(self, self.clip, clip_model(device =None, dtype=dtype, model_options=model_options, **kwargs))
+        setattr(self, self.clip, clip_model(device=None, dtype=dtype, model_options=model_options, **kwargs))
 
         self.dtypes = set()
         if dtype is not None:
