@@ -111,7 +111,7 @@ class CLIP:
             dtype = model_management.text_encoder_dtype(None)
 
         params['dtype'] = dtype
-        #params['device'] = None  model_options.get("initial_device", model_management.text_encoder_initial_device(load_device, offload_device, parameters * model_management.dtype_size(dtype)))
+        params['device'] = None  #model_options.get("initial_device", model_management.text_encoder_initial_device(load_device, offload_device, parameters * model_management.dtype_size(dtype)))
         params['model_options'] = model_options
 
         with no_init_parameters():
@@ -124,7 +124,7 @@ class CLIP:
         self.apply_hooks_to_conds = None
         self.layer_idx = None
         self.use_clip_schedule = False
-        logging.info("CLIP/text encoder model load device: {}, offload device: {}, current: {}, dtype: {}".format(None, None, None, dtype))
+        logging.info("CLIP/text encoder model load device: {}, offload device: {}, current: {}, dtype: {}".format(None, None, params['device'], dtype))
         self.tokenizer_options = {}
 
     def clone(self):
@@ -923,6 +923,7 @@ def load_clip(ckpt_paths, embedding_directory=None, clip_type=CLIPType.STABLE_DI
     clip_data = []
     for p in ckpt_paths:
         clip_data.append(comfy.utils.load_mindspore_file(p, safe_load=True))
+        
     return load_text_encoder_state_dicts(clip_data, embedding_directory=embedding_directory, clip_type=clip_type, model_options=model_options)
 
 
@@ -1264,7 +1265,7 @@ def load_state_dict_guess_config(sd, output_vae=True, output_clip=True, output_c
 
     if output_model:
         inital_load_device = None  #model_management.unet_inital_load_device(parameters, unet_dtype)
-        model = model_config.get_model(sd, diffusion_model_prefix)
+        model = model_config.get_model(sd, diffusion_model_prefix, device=None)
         model.load_model_weights(sd, diffusion_model_prefix)
 
     if output_vae:
