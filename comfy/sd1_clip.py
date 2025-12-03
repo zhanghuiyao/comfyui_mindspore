@@ -88,7 +88,7 @@ class SDClipModel(mindspore.nn.Cell, ClipTokenWeightEncoder):
         "hidden",
         "all"
     ]
-    def __init__(self, max_length=77,
+    def __init__(self, device=None, max_length=77,
                  freeze=True, layer="last", layer_idx=None, textmodel_json_config=None, dtype=None, model_class=comfy.clip_model.CLIPTextModel,
                  special_tokens={"start": 49406, "end": 49407, "pad": 49407}, layer_norm_hidden_state=True, enable_attention_masks=False, zero_out_masked=False,
                  return_projected_pooled=True, return_attention_masks=False, model_options={}):  # clip-vit-base-patch32
@@ -122,7 +122,7 @@ class SDClipModel(mindspore.nn.Cell, ClipTokenWeightEncoder):
                 operations = comfy.ops.manual_cast
 
         self.operations = operations
-        self.transformer = model_class(config, dtype, self.operations)
+        self.transformer = model_class(config, dtype, device, self.operations)
         if scaled_fp8 is not None:
             # self.transformer.scaled_fp8 = mindspore.Parameter(mindspore.tensor([], dtype=scaled_fp8))
             raise NotImplementedError
@@ -664,11 +664,11 @@ class SD1Tokenizer:
         return getattr(self, self.clip).state_dict()
 
 class SD1CheckpointClipModel(SDClipModel):
-    def __init__(self, dtype=None, model_options={}):
-        super().__init__(return_projected_pooled=False, dtype=dtype, model_options=model_options)
+    def __init__(self, device=None, dtype=None, model_options={}):
+        super().__init__(device=None, return_projected_pooled=False, dtype=dtype, model_options=model_options)
 
 class SD1ClipModel(mindspore.nn.Cell):
-    def __init__(self, dtype=None, model_options={}, clip_name="l", clip_model=SD1CheckpointClipModel, name=None, **kwargs):
+    def __init__(self, device=None, dtype=None, model_options={}, clip_name="l", clip_model=SD1CheckpointClipModel, name=None, **kwargs):
         super().__init__()
 
         if name is not None:
@@ -680,7 +680,7 @@ class SD1ClipModel(mindspore.nn.Cell):
 
         clip_model = model_options.get("{}_class".format(self.clip), clip_model)
         model_options = {**model_options, "model_name": self.clip}
-        setattr(self, self.clip, clip_model(dtype=dtype, model_options=model_options, **kwargs))
+        setattr(self, self.clip, clip_model(device =None, dtype=dtype, model_options=model_options, **kwargs))
 
         self.dtypes = set()
         if dtype is not None:
