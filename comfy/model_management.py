@@ -704,8 +704,8 @@ def cast_to(weight, dtype=None, device=None, non_blocking=False, copy=False, str
             return weight
     if stream is not None:
         with stream:
-            return weight.to(dtype=dtype, copy=copy)
-    return weight.to(dtype=dtype, copy=copy)
+            return weight.to(dtype=dtype).clone() if copy else weight.to(dtype=dtype)
+    return weight.to(dtype=dtype).clone() if copy else weight.to(dtype=dtype)
 
 def cast_to_device(tensor, device, dtype, copy=False):
     non_blocking = device_supports_non_blocking(None)
