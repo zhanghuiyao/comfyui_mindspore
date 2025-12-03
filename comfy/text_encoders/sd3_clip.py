@@ -61,11 +61,11 @@ class SD3Tokenizer:
         return {}
 
 class SD3ClipModel(mint.nn.Cell):
-    def __init__(self, clip_l=True, clip_g=True, t5=True, dtype_t5=None, t5_attention_mask=False,dtype=None, model_options={}):
+    def __init__(self, clip_l=True, clip_g=True, t5=True, dtype_t5=None, t5_attention_mask=False, device=None, dtype=None, model_options={}):
         super().__init__()
         self.dtypes = set()
         if clip_l:
-            self.clip_l = sd1_clip.SDClipModel(layer="hidden", layer_idx=-2, dtype=dtype, layer_norm_hidden_state=False, return_projected_pooled=False, model_options=model_options)
+            self.clip_l = sd1_clip.SDClipModel(layer="hidden", layer_idx=-2, device=device, dtype=dtype, layer_norm_hidden_state=False, return_projected_pooled=False, model_options=model_options)
             self.dtypes.add(dtype)
         else:
             self.clip_l = None
@@ -79,7 +79,7 @@ class SD3ClipModel(mint.nn.Cell):
         if t5:
             dtype_t5 = comfy.model_management.pick_weight_dtype(dtype_t5, dtype)
             self.t5_attention_mask = t5_attention_mask
-            self.t5xxl = T5XXLModel(dtype=dtype_t5, model_options=model_options, attention_mask=self.t5_attention_mask)
+            self.t5xxl = T5XXLModel(device=device, dtype=dtype_t5, model_options=model_options, attention_mask=self.t5_attention_mask)
             self.dtypes.add(dtype_t5)
         else:
             self.t5xxl = None
