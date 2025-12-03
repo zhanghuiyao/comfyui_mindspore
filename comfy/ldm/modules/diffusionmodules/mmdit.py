@@ -1,5 +1,3 @@
-
-
 from functools import partial
 from typing import Dict, Optional, List
 
@@ -779,6 +777,7 @@ class MMDiT(mint.nn.Cell):
         final_layer = True,
         skip_blocks = False,
         dtype = None, #TODO
+        device = None,
         operations = None,
     ):
         super().__init__()
