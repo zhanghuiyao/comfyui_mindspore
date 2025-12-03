@@ -1,6 +1,6 @@
 from __future__ import annotations
-import torch
-from torch import nn
+import mindspore
+from mindspore import nn, mint
 from functools import partial
 import math
 from einops import rearrange
@@ -12,7 +12,7 @@ import comfy.ops
 
 ops = comfy.ops.disable_weight_init
 
-class Encoder(nn.Module):
+class Encoder(nn.Cell):
     r"""
     The `Encoder` layer of a variational autoencoder that encodes its input into a latent representation.
 
@@ -71,7 +71,7 @@ class Encoder(nn.Module):
             spatial_padding_mode=spatial_padding_mode,
         )
 
-        self.down_blocks = nn.ModuleList([])
+        self.down_blocks = nn.CellList([])
 
         for block_name, block_params in blocks:
             input_channel = output_channel
@@ -174,7 +174,7 @@ class Encoder(nn.Module):
 
         # out
         if norm_layer == "group_norm":
-            self.conv_norm_out = nn.GroupNorm(
+            self.conv_norm_out = mint.nn.GroupNorm(
                 num_channels=output_channel, num_groups=norm_num_groups, eps=1e-6
             )
         elif norm_layer == "pixel_norm":
@@ -182,7 +182,7 @@ class Encoder(nn.Module):
         elif norm_layer == "layer_norm":
             self.conv_norm_out = LayerNorm(output_channel, eps=1e-6)
 
-        self.conv_act = nn.SiLU()
+        self.conv_act = mint.nn.SiLU()
 
         conv_out_channels = out_channels
         if latent_log_var == "per_channel":
@@ -205,20 +205,21 @@ class Encoder(nn.Module):
 
         self.gradient_checkpointing = False
 
-    def forward(self, sample: torch.FloatTensor) -> torch.FloatTensor:
+    def construct(self, sample: ms.Tensor) -> ms.Tensor:
         r"""The forward method of the `Encoder` class."""
 
         sample = patchify(sample, patch_size_hw=self.patch_size, patch_size_t=1)
         sample = self.conv_in(sample)
 
-        checkpoint_fn = (
-            partial(torch.utils.checkpoint.checkpoint, use_reentrant=False)
-            if self.gradient_checkpointing and self.training
-            else lambda x: x
-        )
+        # checkpoint_fn = (
+        #     partial(torch.utils.checkpoint.checkpoint, use_reentrant=False)
+        #     if self.gradient_checkpointing and self.training
+        #     else lambda x: x
+        # )
 
         for down_block in self.down_blocks:
-            sample = checkpoint_fn(down_block)(sample)
+            # sample = checkpoint_fn(down_block)(sample)
+            sample = down_block(sample)
 
         sample = self.conv_norm_out(sample)
         sample = self.conv_act(sample)
@@ -233,13 +234,13 @@ class Encoder(nn.Module):
                 repeated_last_channel = last_channel.repeat(
                     1, sample.shape[1] - 2, 1, 1
                 )
-                sample = torch.cat([sample, repeated_last_channel], dim=1)
+                sample = mint.cat([sample, repeated_last_channel], dim=1)
             elif num_dims == 5:
                 # For shape (B, C, F, H, W)
                 repeated_last_channel = last_channel.repeat(
                     1, sample.shape[1] - 2, 1, 1, 1
                 )
-                sample = torch.cat([sample, repeated_last_channel], dim=1)
+                sample = mint.cat([sample, repeated_last_channel], dim=1)
             else:
                 raise ValueError(f"Invalid input shape: {sample.shape}")
         elif self.latent_log_var == "constant":
@@ -247,15 +248,15 @@ class Encoder(nn.Module):
             approx_ln_0 = (
                 -30
             )  # this is the minimal clamp value in DiagonalGaussianDistribution objects
-            sample = torch.cat(
-                [sample, torch.ones_like(sample, device=sample.device) * approx_ln_0],
+            sample = mint.cat(
+                [sample, mint.ones_like(sample) * approx_ln_0],
                 dim=1,
             )
 
         return sample
 
 
-class Decoder(nn.Module):
+class Decoder(nn.Cell):
     r"""
     The `Decoder` layer of a variational autoencoder that decodes its latent representation into an output sample.
 
@@ -322,7 +323,7 @@ class Decoder(nn.Module):
             spatial_padding_mode=spatial_padding_mode,
         )
 
-        self.up_blocks = nn.ModuleList([])
+        self.up_blocks = nn.CellList([])
 
         for block_name, block_params in list(reversed(blocks)):
             input_channel = output_channel
@@ -396,7 +397,7 @@ class Decoder(nn.Module):
             self.up_blocks.append(block)
 
         if norm_layer == "group_norm":
-            self.conv_norm_out = nn.GroupNorm(
+            self.conv_norm_out = mint.nn.GroupNorm(
                 num_channels=output_channel, num_groups=norm_num_groups, eps=1e-6
             )
         elif norm_layer == "pixel_norm":
@@ -404,7 +405,7 @@ class Decoder(nn.Module):
         elif norm_layer == "layer_norm":
             self.conv_norm_out = LayerNorm(output_channel, eps=1e-6)
 
-        self.conv_act = nn.SiLU()
+        self.conv_act = mint.nn.SiLU()
         self.conv_out = make_conv_nd(
             dims,
             output_channel,
@@ -420,45 +421,49 @@ class Decoder(nn.Module):
         self.timestep_conditioning = timestep_conditioning
 
         if timestep_conditioning:
-            self.timestep_scale_multiplier = nn.Parameter(
-                torch.tensor(1000.0, dtype=torch.float32)
+            self.timestep_scale_multiplier = mindspore.Parameter(
+                mindspore.tensor(1000.0, dtype=mindspore.float32)
             )
             self.last_time_embedder = PixArtAlphaCombinedTimestepSizeEmbeddings(
                 output_channel * 2, 0, operations=ops,
             )
-            self.last_scale_shift_table = nn.Parameter(torch.empty(2, output_channel))
+            self.last_scale_shift_table = mindspore.Parameter(mint.empty(2, output_channel))
 
-    # def forward(self, sample: torch.FloatTensor, target_shape) -> torch.FloatTensor:
-    def forward(
+    # def construct(self, sample: ms.Tensor, target_shape) -> ms.Tensor:
+    def construct(
         self,
-        sample: torch.FloatTensor,
-        timestep: Optional[torch.Tensor] = None,
-    ) -> torch.FloatTensor:
+        sample: ms.Tensor,
+        timestep: Optional[ms.Tensor] = None,
+    ) -> ms.Tensor:
         r"""The forward method of the `Decoder` class."""
         batch_size = sample.shape[0]
 
         sample = self.conv_in(sample, causal=self.causal)
 
-        checkpoint_fn = (
-            partial(torch.utils.checkpoint.checkpoint, use_reentrant=False)
-            if self.gradient_checkpointing and self.training
-            else lambda x: x
-        )
+        # checkpoint_fn = (
+        #     partial(torch.utils.checkpoint.checkpoint, use_reentrant=False)
+        #     if self.gradient_checkpointing and self.training
+        #     else lambda x: x
+        # )
 
         scaled_timestep = None
         if self.timestep_conditioning:
             assert (
                 timestep is not None
             ), "should pass timestep with timestep_conditioning=True"
-            scaled_timestep = timestep * self.timestep_scale_multiplier.to(dtype=sample.dtype, device=sample.device)
+            scaled_timestep = timestep * self.timestep_scale_multiplier.to(dtype=sample.dtype)
 
         for up_block in self.up_blocks:
             if self.timestep_conditioning and isinstance(up_block, UNetMidBlock3D):
-                sample = checkpoint_fn(up_block)(
+                # sample = checkpoint_fn(up_block)(
+                #     sample, causal=self.causal, timestep=scaled_timestep
+                # )
+                sample = up_block(
                     sample, causal=self.causal, timestep=scaled_timestep
                 )
             else:
-                sample = checkpoint_fn(up_block)(sample, causal=self.causal)
+                # sample = checkpoint_fn(up_block)(sample, causal=self.causal)
+                sample = up_block(sample, causal=self.causal)
 
         sample = self.conv_norm_out(sample)
 
@@ -475,7 +480,7 @@ class Decoder(nn.Module):
             )
             ada_values = self.last_scale_shift_table[
                 None, ..., None, None, None
-            ].to(device=sample.device, dtype=sample.dtype) + embedded_timestep.reshape(
+            ].to(dtype=sample.dtype) + embedded_timestep.reshape(
                 batch_size,
                 2,
                 -1,
@@ -494,7 +499,7 @@ class Decoder(nn.Module):
         return sample
 
 
-class UNetMidBlock3D(nn.Module):
+class UNetMidBlock3D(nn.Cell):
     """
     A 3D UNet mid-block [`UNetMidBlock3D`] with multiple residual blocks.
 
@@ -513,7 +518,7 @@ class UNetMidBlock3D(nn.Module):
             Whether to condition the hidden states on the timestep.
 
     Returns:
-        `torch.FloatTensor`: The output of the last residual block, which is a tensor of shape `(batch_size,
+        `ms.Tensor`: The output of the last residual block, which is a tensor of shape `(batch_size,
         in_channels, height, width)`.
 
     """
@@ -543,7 +548,7 @@ class UNetMidBlock3D(nn.Module):
                 in_channels * 4, 0, operations=ops,
             )
 
-        self.res_blocks = nn.ModuleList(
+        self.res_blocks = nn.CellList(
             [
                 ResnetBlock3D(
                     dims=dims,
@@ -561,12 +566,12 @@ class UNetMidBlock3D(nn.Module):
             ]
         )
 
-    def forward(
+    def construct(
         self,
-        hidden_states: torch.FloatTensor,
+        hidden_states: ms.Tensor,
         causal: bool = True,
-        timestep: Optional[torch.Tensor] = None,
-    ) -> torch.FloatTensor:
+        timestep: Optional[ms.Tensor] = None,
+    ) -> ms.Tensor:
         timestep_embed = None
         if self.timestep_conditioning:
             assert (
@@ -590,7 +595,7 @@ class UNetMidBlock3D(nn.Module):
         return hidden_states
 
 
-class SpaceToDepthDownsample(nn.Module):
+class SpaceToDepthDownsample(nn.Cell):
     def __init__(self, dims, in_channels, out_channels, stride, spatial_padding_mode):
         super().__init__()
         self.stride = stride
@@ -605,9 +610,9 @@ class SpaceToDepthDownsample(nn.Module):
             spatial_padding_mode=spatial_padding_mode,
         )
 
-    def forward(self, x, causal: bool = True):
+    def construct(self, x, causal: bool = True):
         if self.stride[0] == 2:
-            x = torch.cat(
+            x = mint.cat(
                 [x[:, :, :1, :, :], x], dim=2
             )  # duplicate first frames for padding
 
@@ -637,7 +642,7 @@ class SpaceToDepthDownsample(nn.Module):
         return x
 
 
-class DepthToSpaceUpsample(nn.Module):
+class DepthToSpaceUpsample(nn.Cell):
     def __init__(
         self,
         dims,
@@ -664,7 +669,7 @@ class DepthToSpaceUpsample(nn.Module):
         self.residual = residual
         self.out_channels_reduction_factor = out_channels_reduction_factor
 
-    def forward(self, x, causal: bool = True, timestep: Optional[torch.Tensor] = None):
+    def construct(self, x, causal: bool = True, timestep: Optional[ms.Tensor] = None):
         if self.residual:
             # Reshape and duplicate the input to match the output shape
             x_in = rearrange(
@@ -692,19 +697,19 @@ class DepthToSpaceUpsample(nn.Module):
             x = x + x_in
         return x
 
-class LayerNorm(nn.Module):
+class LayerNorm(nn.Cell):
     def __init__(self, dim, eps, elementwise_affine=True) -> None:
         super().__init__()
         self.norm = ops.LayerNorm(dim, eps=eps, elementwise_affine=elementwise_affine)
 
-    def forward(self, x):
+    def construct(self, x):
         x = rearrange(x, "b c d h w -> b d h w c")
         x = self.norm(x)
         x = rearrange(x, "b d h w c -> b c d h w")
         return x
 
 
-class ResnetBlock3D(nn.Module):
+class ResnetBlock3D(nn.Cell):
     r"""
     A Resnet block.
 
@@ -737,7 +742,7 @@ class ResnetBlock3D(nn.Module):
         self.inject_noise = inject_noise
 
         if norm_layer == "group_norm":
-            self.norm1 = nn.GroupNorm(
+            self.norm1 = mint.nn.GroupNorm(
                 num_groups=groups, num_channels=in_channels, eps=eps, affine=True
             )
         elif norm_layer == "pixel_norm":
@@ -745,7 +750,7 @@ class ResnetBlock3D(nn.Module):
         elif norm_layer == "layer_norm":
             self.norm1 = LayerNorm(in_channels, eps=eps, elementwise_affine=True)
 
-        self.non_linearity = nn.SiLU()
+        self.non_linearity = mint.nn.SiLU()
 
         self.conv1 = make_conv_nd(
             dims,
@@ -759,10 +764,10 @@ class ResnetBlock3D(nn.Module):
         )
 
         if inject_noise:
-            self.per_channel_scale1 = nn.Parameter(torch.zeros((in_channels, 1, 1)))
+            self.per_channel_scale1 = mindspore.Parameter(mint.zeros((in_channels, 1, 1)))
 
         if norm_layer == "group_norm":
-            self.norm2 = nn.GroupNorm(
+            self.norm2 = mint.nn.GroupNorm(
                 num_groups=groups, num_channels=out_channels, eps=eps, affine=True
             )
         elif norm_layer == "pixel_norm":
@@ -770,7 +775,7 @@ class ResnetBlock3D(nn.Module):
         elif norm_layer == "layer_norm":
             self.norm2 = LayerNorm(out_channels, eps=eps, elementwise_affine=True)
 
-        self.dropout = torch.nn.Dropout(dropout)
+        self.dropout = mint.nn.Dropout(dropout)
 
         self.conv2 = make_conv_nd(
             dims,
@@ -784,49 +789,48 @@ class ResnetBlock3D(nn.Module):
         )
 
         if inject_noise:
-            self.per_channel_scale2 = nn.Parameter(torch.zeros((in_channels, 1, 1)))
+            self.per_channel_scale2 = mindspore.Parameter(mint.zeros((in_channels, 1, 1)))
 
         self.conv_shortcut = (
             make_linear_nd(
                 dims=dims, in_channels=in_channels, out_channels=out_channels
             )
             if in_channels != out_channels
-            else nn.Identity()
+            else mint.nn.Identity()
         )
 
         self.norm3 = (
             LayerNorm(in_channels, eps=eps, elementwise_affine=True)
             if in_channels != out_channels
-            else nn.Identity()
+            else mint.nn.Identity()
         )
 
         self.timestep_conditioning = timestep_conditioning
 
         if timestep_conditioning:
-            self.scale_shift_table = nn.Parameter(
-                torch.randn(4, in_channels) / in_channels**0.5
+            self.scale_shift_table = mindspore.Parameter(
+                mint.randn(4, in_channels) / in_channels**0.5
             )
 
     def _feed_spatial_noise(
-        self, hidden_states: torch.FloatTensor, per_channel_scale: torch.FloatTensor
-    ) -> torch.FloatTensor:
+        self, hidden_states: ms.Tensor, per_channel_scale: ms.Tensor
+    ) -> ms.Tensor:
         spatial_shape = hidden_states.shape[-2:]
-        device = hidden_states.device
         dtype = hidden_states.dtype
 
         # similar to the "explicit noise inputs" method in style-gan
-        spatial_noise = torch.randn(spatial_shape, device=device, dtype=dtype)[None]
+        spatial_noise = mint.randn(spatial_shape, dtype=dtype)[None]
         scaled_noise = (spatial_noise * per_channel_scale)[None, :, None, ...]
         hidden_states = hidden_states + scaled_noise
 
         return hidden_states
 
-    def forward(
+    def construct(
         self,
-        input_tensor: torch.FloatTensor,
+        input_tensor: ms.Tensor,
         causal: bool = True,
-        timestep: Optional[torch.Tensor] = None,
-    ) -> torch.FloatTensor:
+        timestep: Optional[ms.Tensor] = None,
+    ) -> ms.Tensor:
         hidden_states = input_tensor
         batch_size = hidden_states.shape[0]
 
@@ -837,7 +841,7 @@ class ResnetBlock3D(nn.Module):
             ), "should pass timestep with timestep_conditioning=True"
             ada_values = self.scale_shift_table[
                 None, ..., None, None, None
-            ].to(device=hidden_states.device, dtype=hidden_states.dtype) + timestep.reshape(
+            ].to(dtype=hidden_states.dtype) + timestep.reshape(
                 batch_size,
                 4,
                 -1,
@@ -855,7 +859,7 @@ class ResnetBlock3D(nn.Module):
 
         if self.inject_noise:
             hidden_states = self._feed_spatial_noise(
-                hidden_states, self.per_channel_scale1.to(device=hidden_states.device, dtype=hidden_states.dtype)
+                hidden_states, self.per_channel_scale1.to(dtype=hidden_states.dtype)
             )
 
         hidden_states = self.norm2(hidden_states)
@@ -871,7 +875,7 @@ class ResnetBlock3D(nn.Module):
 
         if self.inject_noise:
             hidden_states = self._feed_spatial_noise(
-                hidden_states, self.per_channel_scale2.to(device=hidden_states.device, dtype=hidden_states.dtype)
+                hidden_states, self.per_channel_scale2.to(dtype=hidden_states.dtype)
             )
 
         input_tensor = self.norm3(input_tensor)
@@ -925,14 +929,14 @@ def unpatchify(x, patch_size_hw, patch_size_t=1):
 
     return x
 
-class processor(nn.Module):
+class processor(nn.Cell):
     def __init__(self):
         super().__init__()
-        self.register_buffer("std-of-means", torch.empty(128))
-        self.register_buffer("mean-of-means", torch.empty(128))
-        self.register_buffer("mean-of-stds", torch.empty(128))
-        self.register_buffer("mean-of-stds_over_std-of-means", torch.empty(128))
-        self.register_buffer("channel", torch.empty(128))
+        self.register_buffer("std-of-means", mint.empty(128))
+        self.register_buffer("mean-of-means", mint.empty(128))
+        self.register_buffer("mean-of-stds", mint.empty(128))
+        self.register_buffer("mean-of-stds_over_std-of-means", mint.empty(128))
+        self.register_buffer("channel", mint.empty(128))
 
     def un_normalize(self, x):
         return (x * self.get_buffer("std-of-means").view(1, -1, 1, 1, 1).to(x)) + self.get_buffer("mean-of-means").view(1, -1, 1, 1, 1).to(x)
@@ -940,7 +944,7 @@ class processor(nn.Module):
     def normalize(self, x):
         return (x - self.get_buffer("mean-of-means").view(1, -1, 1, 1, 1).to(x)) / self.get_buffer("std-of-means").view(1, -1, 1, 1, 1).to(x)
 
-class VideoVAE(nn.Module):
+class VideoVAE(nn.Cell):
     def __init__(self, version=0, config=None):
         super().__init__()
 
@@ -1082,11 +1086,11 @@ class VideoVAE(nn.Module):
         frames_count = x.shape[2]
         if ((frames_count - 1) % 8) != 0:
             raise ValueError("Invalid number of frames: Encode input must have 1 + 8 * x frames (e.g., 1, 9, 17, ...). Please check your input.")
-        means, logvar = torch.chunk(self.encoder(x), 2, dim=1)
+        means, logvar = mint.chunk(self.encoder(x), 2, dim=1)
         return self.per_channel_statistics.normalize(means)
 
     def decode(self, x, timestep=0.05, noise_scale=0.025):
         if self.timestep_conditioning: #TODO: seed
-            x = torch.randn_like(x) * noise_scale + (1.0 - noise_scale) * x
+            x = mint.randn_like(x) * noise_scale + (1.0 - noise_scale) * x
         return self.decoder(self.per_channel_statistics.un_normalize(x), timestep=timestep)
 

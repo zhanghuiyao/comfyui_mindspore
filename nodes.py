@@ -945,8 +945,6 @@ class CLIPLoader:
         clip_type = getattr(comfy.sd.CLIPType, type.upper(), comfy.sd.CLIPType.STABLE_DIFFUSION)
 
         model_options = {}
-        if device == "cpu":
-            model_options["load_device"] = model_options["offload_device"] = None  #torch.device("cpu")
 
         clip_path = folder_paths.get_full_path_or_raise("text_encoders", clip_name)
         clip = comfy.sd.load_clip(ckpt_paths=[clip_path], embedding_directory=folder_paths.get_folder_paths("embeddings"), clip_type=clip_type, model_options=model_options)
@@ -2289,7 +2287,7 @@ async def init_builtin_extra_nodes():
         # "nodes_advanced_samplers.py",
         # "nodes_webcam.py",
         # "nodes_audio.py",
-        # "nodes_sd3.py",
+        "nodes_sd3.py",
         # "nodes_gits.py",
         # "nodes_controlnet.py",
         # "nodes_hunyuan.py",

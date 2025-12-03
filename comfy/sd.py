@@ -5,6 +5,7 @@ import logging
 
 import mindspore
 from mindspore import mint
+from mindspore.nn.utils import no_init_parameters
 
 from comfy import model_management
 from comfy.utils import ProgressBar
@@ -52,7 +53,7 @@ import comfy.text_encoders.wan
 # import comfy.text_encoders.hidream
 # import comfy.text_encoders.ace
 # import comfy.text_encoders.omnigen2
-# import comfy.text_encoders.qwen_image
+import comfy.text_encoders.qwen_image
 # import comfy.text_encoders.hunyuan_image
 
 import comfy.model_patcher
@@ -113,7 +114,8 @@ class CLIP:
         params['device'] = None  #model_options.get("initial_device", model_management.text_encoder_initial_device(load_device, offload_device, parameters * model_management.dtype_size(dtype)))
         params['model_options'] = model_options
 
-        self.cond_stage_model = clip(**(params))
+        with no_init_parameters():
+            self.cond_stage_model = clip(**(params))
 
         self.tokenizer = tokenizer(embedding_directory=embedding_directory, tokenizer_data=tokenizer_data)
         self.patcher = comfy.model_patcher.ModelPatcher(self.cond_stage_model, load_device=None, offload_device=None)
@@ -1100,9 +1102,8 @@ def load_text_encoder_state_dicts(state_dicts=[], embedding_directory=None, clip
                 # clip_target.tokenizer = comfy.text_encoders.hunyuan_image.HunyuanImageTokenizer
                 raise NotImplementedError
             else:
-                # clip_target.clip = comfy.text_encoders.qwen_image.te(**llama_detect(clip_data))
-                # clip_target.tokenizer = comfy.text_encoders.qwen_image.QwenImageTokenizer
-                raise NotImplementedError
+                clip_target.clip = comfy.text_encoders.qwen_image.te(**llama_detect(clip_data))
+                clip_target.tokenizer = comfy.text_encoders.qwen_image.QwenImageTokenizer
         else:
             # clip_l
             if clip_type == CLIPType.SD3:
@@ -1130,9 +1131,8 @@ def load_text_encoder_state_dicts(state_dicts=[], embedding_directory=None, clip
             clip_target.clip = comfy.text_encoders.flux.flux_clip(**t5xxl_detect(clip_data))
             clip_target.tokenizer = comfy.text_encoders.flux.FluxTokenizer
         elif clip_type == CLIPType.HUNYUAN_VIDEO:
-            # clip_target.clip = comfy.text_encoders.hunyuan_video.hunyuan_video_clip(**llama_detect(clip_data))
-            # clip_target.tokenizer = comfy.text_encoders.hunyuan_video.HunyuanVideoTokenizer
-            raise NotImplementedError
+            clip_target.clip = comfy.text_encoders.hunyuan_video.hunyuan_video_clip(**llama_detect(clip_data))
+            clip_target.tokenizer = comfy.text_encoders.hunyuan_video.HunyuanVideoTokenizer
         elif clip_type == CLIPType.HIDREAM:
             # # Detect
             # hidream_dualclip_classes = []
@@ -1384,7 +1384,8 @@ def load_diffusion_model_state_dict(sd, model_options={}, metadata=None):
     if model_options.get("fp8_optimizations", False):
         model_config.optimizations["fp8"] = True
 
-    model = model_config.get_model(new_sd, "")
+    with no_init_parameters():
+        model = model_config.get_model(new_sd, "")
     model.load_model_weights(new_sd, "")
     left_over = sd.keys()
     if len(left_over) > 0:

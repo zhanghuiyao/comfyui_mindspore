@@ -15,13 +15,13 @@ import comfy.text_encoders.sd3_clip
 import comfy.text_encoders.flux
 # import comfy.text_encoders.genmo
 # import comfy.text_encoders.lt
-# import comfy.text_encoders.hunyuan_video
+import comfy.text_encoders.hunyuan_video
 # import comfy.text_encoders.cosmos
 # import comfy.text_encoders.lumina2
 # import comfy.text_encoders.wan
 # import comfy.text_encoders.ace
 # import comfy.text_encoders.omnigen2
-# import comfy.text_encoders.qwen_image
+import comfy.text_encoders.qwen_image
 # import comfy.text_encoders.hunyuan_image
 
 from . import supported_models_base
@@ -804,53 +804,53 @@ class Flux(supported_models_base.BASE):
 #         t5_detect = comfy.text_encoders.sd3_clip.t5_xxl_detect(state_dict, "{}t5xxl.transformer.".format(pref))
 #         return supported_models_base.ClipTarget(comfy.text_encoders.lt.LTXVT5Tokenizer, comfy.text_encoders.lt.ltxv_te(**t5_detect))
 
-# class HunyuanVideo(supported_models_base.BASE):
-#     unet_config = {
-#         "image_model": "hunyuan_video",
-#     }
+class HunyuanVideo(supported_models_base.BASE):
+    unet_config = {
+        "image_model": "hunyuan_video",
+    }
 
-#     sampling_settings = {
-#         "shift": 7.0,
-#     }
+    sampling_settings = {
+        "shift": 7.0,
+    }
 
-#     unet_extra_config = {}
-#     latent_format = latent_formats.HunyuanVideo
+    unet_extra_config = {}
+    latent_format = latent_formats.HunyuanVideo
 
-#     memory_usage_factor = 1.8 #TODO
+    memory_usage_factor = 1.8 #TODO
 
-#     supported_inference_dtypes = [torch.bfloat16, torch.float32]
+    supported_inference_dtypes = [mindspore.bfloat16, mindspore.float32]
 
-#     vae_key_prefix = ["vae."]
-#     text_encoder_key_prefix = ["text_encoders."]
+    vae_key_prefix = ["vae."]
+    text_encoder_key_prefix = ["text_encoders."]
 
-#     def get_model(self, state_dict, prefix="", device=None):
-#         out = model_base.HunyuanVideo(self, device=device)
-#         return out
+    def get_model(self, state_dict, prefix="", device=None):
+        out = model_base.HunyuanVideo(self, device=device)
+        return out
 
-#     def process_unet_state_dict(self, state_dict):
-#         out_sd = {}
-#         for k in list(state_dict.keys()):
-#             key_out = k
-#             key_out = key_out.replace("txt_in.t_embedder.mlp.0.", "txt_in.t_embedder.in_layer.").replace("txt_in.t_embedder.mlp.2.", "txt_in.t_embedder.out_layer.")
-#             key_out = key_out.replace("txt_in.c_embedder.linear_1.", "txt_in.c_embedder.in_layer.").replace("txt_in.c_embedder.linear_2.", "txt_in.c_embedder.out_layer.")
-#             key_out = key_out.replace("_mod.linear.", "_mod.lin.").replace("_attn_qkv.", "_attn.qkv.")
-#             key_out = key_out.replace("mlp.fc1.", "mlp.0.").replace("mlp.fc2.", "mlp.2.")
-#             key_out = key_out.replace("_attn_q_norm.weight", "_attn.norm.query_norm.scale").replace("_attn_k_norm.weight", "_attn.norm.key_norm.scale")
-#             key_out = key_out.replace(".q_norm.weight", ".norm.query_norm.scale").replace(".k_norm.weight", ".norm.key_norm.scale")
-#             key_out = key_out.replace("_attn_proj.", "_attn.proj.")
-#             key_out = key_out.replace(".modulation.linear.", ".modulation.lin.")
-#             key_out = key_out.replace("_in.mlp.2.", "_in.out_layer.").replace("_in.mlp.0.", "_in.in_layer.")
-#             out_sd[key_out] = state_dict[k]
-#         return out_sd
+    def process_unet_state_dict(self, state_dict):
+        out_sd = {}
+        for k in list(state_dict.keys()):
+            key_out = k
+            key_out = key_out.replace("txt_in.t_embedder.mlp.0.", "txt_in.t_embedder.in_layer.").replace("txt_in.t_embedder.mlp.2.", "txt_in.t_embedder.out_layer.")
+            key_out = key_out.replace("txt_in.c_embedder.linear_1.", "txt_in.c_embedder.in_layer.").replace("txt_in.c_embedder.linear_2.", "txt_in.c_embedder.out_layer.")
+            key_out = key_out.replace("_mod.linear.", "_mod.lin.").replace("_attn_qkv.", "_attn.qkv.")
+            key_out = key_out.replace("mlp.fc1.", "mlp.0.").replace("mlp.fc2.", "mlp.2.")
+            key_out = key_out.replace("_attn_q_norm.weight", "_attn.norm.query_norm.scale").replace("_attn_k_norm.weight", "_attn.norm.key_norm.scale")
+            key_out = key_out.replace(".q_norm.weight", ".norm.query_norm.scale").replace(".k_norm.weight", ".norm.key_norm.scale")
+            key_out = key_out.replace("_attn_proj.", "_attn.proj.")
+            key_out = key_out.replace(".modulation.linear.", ".modulation.lin.")
+            key_out = key_out.replace("_in.mlp.2.", "_in.out_layer.").replace("_in.mlp.0.", "_in.in_layer.")
+            out_sd[key_out] = state_dict[k]
+        return out_sd
 
-#     def process_unet_state_dict_for_saving(self, state_dict):
-#         replace_prefix = {"": "model.model."}
-#         return utils.state_dict_prefix_replace(state_dict, replace_prefix)
+    def process_unet_state_dict_for_saving(self, state_dict):
+        replace_prefix = {"": "model.model."}
+        return utils.state_dict_prefix_replace(state_dict, replace_prefix)
 
-#     def clip_target(self, state_dict={}):
-#         pref = self.text_encoder_key_prefix[0]
-#         hunyuan_detect = comfy.text_encoders.hunyuan_video.llama_detect(state_dict, "{}llama.transformer.".format(pref))
-#         return supported_models_base.ClipTarget(comfy.text_encoders.hunyuan_video.HunyuanVideoTokenizer, comfy.text_encoders.hunyuan_video.hunyuan_video_clip(**hunyuan_detect))
+    def clip_target(self, state_dict={}):
+        pref = self.text_encoder_key_prefix[0]
+        hunyuan_detect = comfy.text_encoders.hunyuan_video.llama_detect(state_dict, "{}llama.transformer.".format(pref))
+        return supported_models_base.ClipTarget(comfy.text_encoders.hunyuan_video.HunyuanVideoTokenizer, comfy.text_encoders.hunyuan_video.hunyuan_video_clip(**hunyuan_detect))
 
 # class HunyuanVideoI2V(HunyuanVideo):
 #     unet_config = {
@@ -1305,34 +1305,34 @@ class Flux(supported_models_base.BASE):
 #         hunyuan_detect = comfy.text_encoders.hunyuan_video.llama_detect(state_dict, "{}qwen25_3b.transformer.".format(pref))
 #         return supported_models_base.ClipTarget(comfy.text_encoders.omnigen2.Omnigen2Tokenizer, comfy.text_encoders.omnigen2.te(**hunyuan_detect))
 
-# class QwenImage(supported_models_base.BASE):
-#     unet_config = {
-#         "image_model": "qwen_image",
-#     }
+class QwenImage(supported_models_base.BASE):
+    unet_config = {
+        "image_model": "qwen_image",
+    }
 
-#     sampling_settings = {
-#         "multiplier": 1.0,
-#         "shift": 1.15,
-#     }
+    sampling_settings = {
+        "multiplier": 1.0,
+        "shift": 1.15,
+    }
 
-#     memory_usage_factor = 1.8 #TODO
+    memory_usage_factor = 1.8 #TODO
 
-#     unet_extra_config = {}
-#     latent_format = latent_formats.Wan21
+    unet_extra_config = {}
+    latent_format = latent_formats.Wan21
 
-#     supported_inference_dtypes = [torch.bfloat16, torch.float32]
+    supported_inference_dtypes = [mindspore.bfloat16, mindspore.float32]
 
-#     vae_key_prefix = ["vae."]
-#     text_encoder_key_prefix = ["text_encoders."]
+    vae_key_prefix = ["vae."]
+    text_encoder_key_prefix = ["text_encoders."]
 
-#     def get_model(self, state_dict, prefix="", device=None):
-#         out = model_base.QwenImage(self, device=device)
-#         return out
+    def get_model(self, state_dict, prefix="", device=None):
+        out = model_base.QwenImage(self, device=device)
+        return out
 
-#     def clip_target(self, state_dict={}):
-#         pref = self.text_encoder_key_prefix[0]
-#         hunyuan_detect = comfy.text_encoders.hunyuan_video.llama_detect(state_dict, "{}qwen25_7b.transformer.".format(pref))
-#         return supported_models_base.ClipTarget(comfy.text_encoders.qwen_image.QwenImageTokenizer, comfy.text_encoders.qwen_image.te(**hunyuan_detect))
+    def clip_target(self, state_dict={}):
+        pref = self.text_encoder_key_prefix[0]
+        hunyuan_detect = comfy.text_encoders.hunyuan_video.llama_detect(state_dict, "{}qwen25_7b.transformer.".format(pref))
+        return supported_models_base.ClipTarget(comfy.text_encoders.qwen_image.QwenImageTokenizer, comfy.text_encoders.qwen_image.te(**hunyuan_detect))
 
 # class HunyuanImage21(HunyuanVideo):
 #     unet_config = {
@@ -1380,4 +1380,4 @@ class Flux(supported_models_base.BASE):
 
 # models += [SVD_img2vid]
 
-models = [Flux,]
+models = [Flux, QwenImage]

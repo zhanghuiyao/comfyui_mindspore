@@ -35,8 +35,8 @@ class Resample(nn.Cell):
                 ops.Conv2d(dim, dim, 3, padding=1),
             )
         elif mode == "upsample3d":
-            self.resample = nn.SequentialCell(
-                mint.nn.Upsample(scale_factor=(2.0, 2.0), mode="nearest-exact"),
+            self.resample = nn.Sequential(
+                nn.Upsample(scale_factor=(2.0, 2.0), mode="nearest-exact"),
                 ops.Conv2d(dim, dim, 3, padding=1),
                 # ops.Conv2d(dim, dim//2, 3, padding=1)
             )
@@ -95,9 +95,9 @@ class Resample(nn.Cell):
                                     3)
                     x = x.reshape(b, c, t * 2, h, w)
         t = x.shape[2]
-        x = rearrange(x, "b c t h w -> (b t) c h w")
+        x = mindspore.tensor(rearrange(x.numpy(), "b c t h w -> (b t) c h w"))
         x = self.resample(x)
-        x = rearrange(x, "(b t) c h w -> b c t h w", t=t)
+        x = mindspore.tensor(rearrange(x.numpy(), "(b t) c h w -> b c t h w", t=t))
 
         if self.mode == "downsample3d":
             if feat_cache is not None:
@@ -162,15 +162,15 @@ def patchify(x, patch_size):
     if patch_size == 1:
         return x
     if x.dim() == 4:
-        x = rearrange(
-            x, "b c (h q) (w r) -> b (c r q) h w", q=patch_size, r=patch_size)
+        x = mindspore.tensor(rearrange(
+            x.numpy(), "b c (h q) (w r) -> b (c r q) h w", q=patch_size, r=patch_size))
     elif x.dim() == 5:
-        x = rearrange(
-            x,
+        x = mindspore.tensor(rearrange(
+            x.numpy(),
             "b c f (h q) (w r) -> b (c r q) f h w",
             q=patch_size,
             r=patch_size,
-        )
+        ))
     else:
         raise ValueError(f"Invalid input shape: {x.shape}")
 
@@ -182,15 +182,15 @@ def unpatchify(x, patch_size):
         return x
 
     if x.dim() == 4:
-        x = rearrange(
-            x, "b (c r q) h w -> b c (h q) (w r)", q=patch_size, r=patch_size)
+        x = mindspore.tensor(rearrange(
+            x.numpy(), "b (c r q) h w -> b c (h q) (w r)", q=patch_size, r=patch_size))
     elif x.dim() == 5:
-        x = rearrange(
-            x,
+        x = mindspore.tensor(rearrange(
+            x.numpy(),
             "b (c r q) f h w -> b c f (h q) (w r)",
             q=patch_size,
             r=patch_size,
-        )
+        ))
     return x
 
 
@@ -601,7 +601,7 @@ class Decoder3d(nn.Cell):
 
 def count_conv3d(model):
     count = 0
-    for m in model.modules():
+    for _, m in model.cells_and_names():
         if isinstance(m, CausalConv3d):
             count += 1
     return count

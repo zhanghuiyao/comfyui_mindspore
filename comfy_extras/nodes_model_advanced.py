@@ -2,7 +2,7 @@ import comfy.sd
 import comfy.model_sampling
 import comfy.latent_formats
 import nodes
-import mindspore as ms
+import mindspore
 from mindspore import mint
 import node_helpers
 
@@ -29,7 +29,7 @@ class ModelSamplingDiscreteDistilled(comfy.model_sampling.ModelSamplingDiscrete)
 
         self.skip_steps = self.num_timesteps // self.original_timesteps
 
-        sigmas_valid = mint.zeros((self.original_timesteps), dtype=ms.float32)
+        sigmas_valid = mint.zeros((self.original_timesteps), dtype=mindspore.float32)
         for x in range(self.original_timesteps):
             sigmas_valid[self.original_timesteps - 1 - x] = self.sigmas[self.num_timesteps - 1 - x * self.skip_steps]
 
@@ -41,7 +41,7 @@ class ModelSamplingDiscreteDistilled(comfy.model_sampling.ModelSamplingDiscrete)
         return dists.abs().argmin(dim=0).view(sigma.shape) * self.skip_steps + (self.skip_steps - 1)
 
     def sigma(self, timestep):
-        t = mint.clamp(((timestep.float() - (self.skip_steps - 1)) / self.skip_steps).float(), min=0, max=(len(self.sigmas) - 1))
+        t = mint.clamp(((timestep.float().to(self.log_sigmas.device) - (self.skip_steps - 1)) / self.skip_steps).float(), min=0, max=(len(self.sigmas) - 1))
         low_idx = t.floor().long()
         high_idx = t.ceil().long()
         w = t.frac()
@@ -311,7 +311,7 @@ class ModelComputeDtype:
     CATEGORY = "advanced/debug/model"
 
     def patch(self, model, dtype):
-        m = model.copy()
+        m = model.clone()
         m.set_model_compute_dtype(node_helpers.string_to_mindspore_dtype(dtype))
         return (m, )
 
