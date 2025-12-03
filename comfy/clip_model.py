@@ -100,7 +100,7 @@ class CLIPEmbeddings(mindspore.nn.Cell):
 
 
 class CLIPTextModel_(mindspore.nn.Cell):
-    def __init__(self, config_dict, dtype, operations):
+    def __init__(self, config_dict, dtype, device, operations):
         num_layers = config_dict["num_hidden_layers"]
         embed_dim = config_dict["hidden_size"]
         heads = config_dict["num_attention_heads"]
@@ -144,10 +144,10 @@ class CLIPTextModel_(mindspore.nn.Cell):
         return x, i, pooled_output
 
 class CLIPTextModel(mindspore.nn.Cell):
-    def __init__(self, config_dict, dtype, operations):
+    def __init__(self, config_dict, dtype, device, operations):
         super().__init__()
         self.num_layers = config_dict["num_hidden_layers"]
-        self.text_model = CLIPTextModel_(config_dict, dtype, operations)
+        self.text_model = CLIPTextModel_(config_dict, dtype, None, operations)
         embed_dim = config_dict["hidden_size"]
         self.text_projection = operations.Linear(embed_dim, embed_dim, bias=False, dtype=dtype)
         self.dtype = dtype
