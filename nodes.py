@@ -71,7 +71,6 @@ class CLIPTextEncode(ComfyNodeABC):
         if clip is None:
             raise RuntimeError("ERROR: clip input is invalid: None\n\nIf the clip is from a checkpoint loader node your checkpoint does not contain a valid clip or text encoder model.")
         tokens = clip.tokenize(text)
-        print(tokens)
         return (clip.encode_from_tokens_scheduled(tokens), )
 
 
@@ -293,10 +292,7 @@ class VAEDecode:
     DESCRIPTION = "Decodes latent images back into pixel space images."
 
     def decode(self, vae, samples):
-        latent_tensor = samples["samples"]
-        
-        images = vae.decode(latent_tensor)
-        
+        images = vae.decode(samples["samples"])
         if len(images.shape) == 5: #Combine batches
             images = images.reshape(-1, images.shape[-3], images.shape[-2], images.shape[-1])
         return (images, )
