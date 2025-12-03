@@ -71,7 +71,7 @@ class SD3ClipModel(mint.nn.Cell):
             self.clip_l = None
 
         if clip_g:
-            self.clip_g = sdxl_clip.SDXLClipG(dtype=dtype, model_options=model_options)
+            self.clip_g = sdxl_clip.SDXLClipG(device=device, dtype=dtype, model_options=model_options)
             self.dtypes.add(dtype)
         else:
             self.clip_g = None
