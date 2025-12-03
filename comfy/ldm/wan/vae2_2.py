@@ -35,8 +35,8 @@ class Resample(nn.Cell):
                 ops.Conv2d(dim, dim, 3, padding=1),
             )
         elif mode == "upsample3d":
-            self.resample = nn.Sequential(
-                nn.Upsample(scale_factor=(2.0, 2.0), mode="nearest-exact"),
+            self.resample = nn.SequentialCell(
+                mint.nn.Upsample(scale_factor=(2.0, 2.0), mode="nearest-exact"),
                 ops.Conv2d(dim, dim, 3, padding=1),
                 # ops.Conv2d(dim, dim//2, 3, padding=1)
             )

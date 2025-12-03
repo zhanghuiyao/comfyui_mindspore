@@ -108,7 +108,7 @@ def cast_bias_weight(s, input=None, dtype=None, device=None, bias_dtype=None, of
 
     if weight_has_function or weight.dtype != dtype:
         with wf_context:
-            weight = weight.to(dtype=dtype)
+            weight = weight.to(dtype=dtype) if dtype else weight
             for f in s.weight_function:
                 weight = f(weight)
 
