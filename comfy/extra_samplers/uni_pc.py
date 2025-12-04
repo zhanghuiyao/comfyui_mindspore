@@ -1,7 +1,7 @@
 #code taken from: https://github.com/wl-zhao/UniPC and modified
 
 import mindspore
-import mindspore as mint
+from mindspore import mint
 import math
 import logging
 
@@ -293,7 +293,7 @@ def model_wrapper(
 
     def noise_pred_fn(x, t_continuous, cond=None):
         if t_continuous.reshape((-1,)).shape[0] == 1:
-            t_continuous = t_continuous.expand((x.shape[0]))
+            t_continuous = t_continuous.expand([x.shape[0]])
         t_input = get_model_input_time(t_continuous)
         output = model(x, t_input, **model_kwargs)
         if model_type == "noise":
@@ -326,7 +326,7 @@ def model_wrapper(
         The noise predicition model function that is used for DPM-Solver.
         """
         if t_continuous.reshape((-1,)).shape[0] == 1:
-            t_continuous = t_continuous.expand((x.shape[0]))
+            t_continuous = t_continuous.expand([x.shape[0]])
         if guidance_type == "uncond":
             return noise_pred_fn(x, t_continuous)
         elif guidance_type == "classifier":
@@ -714,14 +714,14 @@ class UniPC:
             # with torch.no_grad():
             for step_index in trange(steps, disable=disable_pbar):
                 if step_index == 0:
-                    vec_t = timesteps[0].expand((x.shape[0]))
+                    vec_t = timesteps[0].expand([x.shape[0]])
                     model_prev_list = [self.model_fn(x, vec_t)]
                     t_prev_list = [vec_t]
                 elif step_index < order:
                     init_order = step_index
                 # Init the first `order` values by lower order multistep DPM-Solver.
                 # for init_order in range(1, order):
-                    vec_t = timesteps[init_order].expand(x.shape[0])
+                    vec_t = timesteps[init_order].expand([x.shape[0]])
                     x, model_x = self.multistep_uni_pc_update(x, model_prev_list, t_prev_list, vec_t, init_order, use_corrector=True)
                     if model_x is None:
                         model_x = self.model_fn(x, vec_t)
@@ -732,7 +732,7 @@ class UniPC:
                     if step_index == (steps - 1):
                         extra_final_step = 1
                     for step in range(step_index, step_index + 1 + extra_final_step):
-                        vec_t = timesteps[step].expand(x.shape[0])
+                        vec_t = timesteps[step].expand([x.shape[0]])
                         if lower_order_final:
                             step_order = min(order, steps + 1 - step)
                         else:
