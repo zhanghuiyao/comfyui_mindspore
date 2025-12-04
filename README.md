@@ -55,10 +55,18 @@ python main.py --listen 0.0.0.0 --port 9001
 python main.py --listen 0.0.0.0 --port 9001 --force-fp16 --fp16-vae
 ```
 
-### performance:
+### speedup
 
-| chip | models   | image size | infer_steps  | time cost |
+```shell
+# try accelerating your workflow by binding core
+taskset -c 0-47 ...
+```
+
+### performance
+
+| chip | models   | image size | infer_steps  | sampling cost |
 |:-------:|:-------:|:-------:|:-------:|:-------:|
-| 910B | flux | 512*512 | 20 | ~6s |
-| 910B | qwen_image | 512*512 | 20 | ~13s
-| 310P | flux | 512*512 | 20 | ~60s |
+| 910B | flux | 512*512 | 20 | ~4.3 s |
+| 910B | qwen_image | 512*512 | 20 | ~13 s |
+||||||
+| 310P | flux | 512*512 | 20 | ~46.6 s |
