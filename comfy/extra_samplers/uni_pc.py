@@ -2,6 +2,7 @@
 
 import mindspore
 from mindspore import mint
+import numpy as np
 import math
 import logging
 
@@ -643,7 +644,7 @@ class UniPC:
                 if order == 2:
                     rhos_p = mindspore.tensor([0.5])
                 else:
-                    rhos_p = mint.linalg.solve(R[:-1, :-1], b[:-1])
+                    rhos_p = mindspore.tensor(np.linalg.solve(R[:-1, :-1].numpy(), b[:-1].numpy()))
         else:
             D1s = None
 
@@ -653,7 +654,7 @@ class UniPC:
             if order == 1:
                 rhos_c = mindspore.tensor([0.5])
             else:
-                rhos_c = mint.linalg.solve(R, b)
+                rhos_c = mindspore.tensor(np.linalg.solve(R.numpy(), b.numpy()))
 
         model_t = None
         if self.predict_x0:
@@ -664,7 +665,7 @@ class UniPC:
 
             if x_t is None:
                 if use_predictor:
-                    pred_res = mindspore.numpy.tensordot(D1s, rhos_p, dims=([1], [0]))  # mint.einsum('k,bkchw->bchw', rhos_p, D1s)
+                    pred_res = mindspore.numpy.tensordot(D1s, rhos_p, axes=([1], [0]))  # mint.einsum('k,bkchw->bchw', rhos_p, D1s)
                 else:
                     pred_res = 0
                 x_t = x_t_ - expand_dims(alpha_t * B_h, dims) * pred_res
@@ -672,7 +673,7 @@ class UniPC:
             if use_corrector:
                 model_t = self.model_fn(x_t, t)
                 if D1s is not None:
-                    corr_res = mindspore.numpy.tensordot(D1s, rhos_c[:-1], dims=([1], [0]))  # mint.einsum('k,bkchw->bchw', rhos_c[:-1], D1s)
+                    corr_res = mindspore.numpy.tensordot(D1s, rhos_c[:-1], axes=([1], [0]))  # mint.einsum('k,bkchw->bchw', rhos_c[:-1], D1s)
                 else:
                     corr_res = 0
                 D1_t = (model_t - model_prev_0)

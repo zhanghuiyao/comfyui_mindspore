@@ -54,7 +54,7 @@ class RMS_norm(nn.Cell):
 
     def construct(self, x):
         return F.normalize(
-            x, dim=(1 if self.channel_first else -1)) * self.scale * self.gamma.to(x) + (self.bias.to(x) if self.bias is not None else 0)
+            x, dim=(1 if self.channel_first else -1)) * self.scale * self.gamma.to(x.dtype) + (self.bias.to(x.dtype) if self.bias is not None else 0)
 
 
 class Resample(nn.Cell):

@@ -267,11 +267,9 @@ class WanAttentionBlock(nn.Cell):
         # assert e.dtype == ms.float32
 
         if e.ndim < 4:
-            # e = (comfy.model_management.cast_to(self.modulation, dtype=x.dtype) + e).chunk(6, dim=1)
-            e = (self.modulation.dtype(x.dtype) + e).chunck(6, dim=1)
+            e = (comfy.model_management.cast_to(self.modulation, dtype=x.dtype) + e).chunk(6, dim=1)
         else:
-            # e = (comfy.model_management.cast_to(self.modulation, dtype=x.dtype).unsqueeze(0) + e).unbind(2)
-            e = (self.modulation.dtype(x.dtype).unsqueeze(0) + e).unbind(2)
+            e = (comfy.model_management.cast_to(self.modulation, dtype=x.dtype).unsqueeze(0) + e).unbind(2)
         # assert e[0].dtype == ms.float32
 
         # self-attention

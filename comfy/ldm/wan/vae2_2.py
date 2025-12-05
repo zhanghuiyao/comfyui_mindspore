@@ -31,12 +31,12 @@ class Resample(nn.Cell):
         # layers
         if mode == "upsample2d":
             self.resample = nn.SequentialCell(
-                mint.nn.Upsample(scale_factor=(2.0, 2.0), mode="nearest-exact"),
+                mint.nn.Upsample(scale_factor=(2.0, 2.0), mode="nearest"),
                 ops.Conv2d(dim, dim, 3, padding=1),
             )
         elif mode == "upsample3d":
             self.resample = nn.SequentialCell(
-                mint.nn.Upsample(scale_factor=(2.0, 2.0), mode="nearest-exact"),
+                mint.nn.Upsample(scale_factor=(2.0, 2.0), mode="nearest"),
                 ops.Conv2d(dim, dim, 3, padding=1),
                 # ops.Conv2d(dim, dim//2, 3, padding=1)
             )
@@ -271,22 +271,22 @@ class DupUp3D(nn.Cell):
     def construct(self, x: mindspore.Tensor, first_chunk=False) -> mindspore.Tensor:
         x = x.repeat_interleave(self.repeats, dim=1)
         x = x.view(
-            x.size(0),
+            x.shape[0],
             self.out_channels,
             self.factor_t,
             self.factor_s,
             self.factor_s,
-            x.size(2),
-            x.size(3),
-            x.size(4),
+            x.shape[2],
+            x.shape[3],
+            x.shape[4],
         )
         x = x.permute(0, 1, 5, 2, 6, 3, 7, 4).contiguous()
         x = x.view(
-            x.size(0),
+            x.shape[0],
             self.out_channels,
-            x.size(2) * self.factor_t,
-            x.size(4) * self.factor_s,
-            x.size(6) * self.factor_s,
+            x.shape[2] * self.factor_t,
+            x.shape[4] * self.factor_s,
+            x.shape[6] * self.factor_s,
         )
         if first_chunk:
             x = x[:, :, self.factor_t - 1:, :, :]
