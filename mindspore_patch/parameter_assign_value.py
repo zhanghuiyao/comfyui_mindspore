@@ -5,7 +5,7 @@ from mindspore import Parameter, Tensor
 
 
 def hacked_param_assign_value(self, value):
-    if value.has_init:
+    if not value.has_init:
         self.init_flag = True
         self.init = value.init
     return Tensor.assign_value(self, value)
