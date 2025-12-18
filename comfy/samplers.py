@@ -433,8 +433,8 @@ def ddim_scheduler(model_sampling, steps):
 
 def normal_scheduler(model_sampling, steps, sgm=False, floor=False):
     s = model_sampling
-    start = s.timestep(s.sigma_max)
-    end = s.timestep(s.sigma_min)
+    start = s.timestep(s.sigma_max).item()
+    end = s.timestep(s.sigma_min).item()
 
     append_zero = True
     if sgm:
@@ -1064,8 +1064,8 @@ class SchedulerHandler(NamedTuple):
 SCHEDULER_HANDLERS = {
     "simple": SchedulerHandler(simple_scheduler),
     "sgm_uniform": SchedulerHandler(partial(normal_scheduler, sgm=True)),
-    # "karras": SchedulerHandler(k_diffusion_sampling.get_sigmas_karras, use_ms=False),
-    # "exponential": SchedulerHandler(k_diffusion_sampling.get_sigmas_exponential, use_ms=False),
+    "karras": SchedulerHandler(k_diffusion_sampling.get_sigmas_karras, use_ms=False),
+    "exponential": SchedulerHandler(k_diffusion_sampling.get_sigmas_exponential, use_ms=False),
     "ddim_uniform": SchedulerHandler(ddim_scheduler),
     "beta": SchedulerHandler(beta_scheduler),
     "normal": SchedulerHandler(normal_scheduler),

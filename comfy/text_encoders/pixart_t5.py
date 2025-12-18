@@ -18,7 +18,7 @@ class T5XXLModel(comfy.text_encoders.sd3_clip.T5XXLModel):
         return gen_empty_tokens(special_tokens, *args, **kwargs)
 
 class PixArtT5XXL(sd1_clip.SD1ClipModel):
-    def __init__(self, device="cpu", dtype=None, model_options={}):
+    def __init__(self, device=None, dtype=None, model_options={}):
         super().__init__(device=device, dtype=dtype, name="t5xxl", clip_model=T5XXLModel, model_options=model_options)
 
 class T5XXLTokenizer(sd1_clip.SDTokenizer):
@@ -32,10 +32,11 @@ class PixArtTokenizer(sd1_clip.SD1Tokenizer):
 
 def pixart_te(dtype_t5=None, t5xxl_scaled_fp8=None):
     class PixArtTEModel_(PixArtT5XXL):
-        def __init__(self, device="cpu", dtype=None, model_options={}):
+        def __init__(self, device=None, dtype=None, model_options={}):
             if t5xxl_scaled_fp8 is not None and "t5xxl_scaled_fp8" not in model_options:
-                model_options = model_options.copy()
-                model_options["t5xxl_scaled_fp8"] = t5xxl_scaled_fp8
+                # model_options = model_options.copy()
+                # model_options["t5xxl_scaled_fp8"] = t5xxl_scaled_fp8
+                raise NotImplementedError("fp8 not supported in MindSpore PixArtT5XXL")
             if dtype is None:
                 dtype = dtype_t5
             super().__init__(device=device, dtype=dtype, model_options=model_options)

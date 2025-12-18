@@ -330,18 +330,18 @@ class VAEDecode:
 #             images = images.reshape(-1, images.shape[-3], images.shape[-2], images.shape[-1])
 #         return (images, )
 
-# class VAEEncode:
-#     @classmethod
-#     def INPUT_TYPES(s):
-#         return {"required": { "pixels": ("IMAGE", ), "vae": ("VAE", )}}
-#     RETURN_TYPES = ("LATENT",)
-#     FUNCTION = "encode"
+class VAEEncode:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": { "pixels": ("IMAGE", ), "vae": ("VAE", )}}
+    RETURN_TYPES = ("LATENT",)
+    FUNCTION = "encode"
 
-#     CATEGORY = "latent"
+    CATEGORY = "latent"
 
-#     def encode(self, vae, pixels):
-#         t = vae.encode(pixels[:,:,:,:3])
-#         return ({"samples":t}, )
+    def encode(self, vae, pixels):
+        t = vae.encode(pixels[:,:,:,:3])
+        return ({"samples":t}, )
 
 # class VAEEncodeTiled:
 #     @classmethod
@@ -540,43 +540,43 @@ class LoadLatent:
         return True
 
 
-# class CheckpointLoader:
-#     @classmethod
-#     def INPUT_TYPES(s):
-#         return {"required": { "config_name": (folder_paths.get_filename_list("configs"), ),
-#                               "ckpt_name": (folder_paths.get_filename_list("checkpoints"), )}}
-#     RETURN_TYPES = ("MODEL", "CLIP", "VAE")
-#     FUNCTION = "load_checkpoint"
+class CheckpointLoader:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": { "config_name": (folder_paths.get_filename_list("configs"), ),
+                              "ckpt_name": (folder_paths.get_filename_list("checkpoints"), )}}
+    RETURN_TYPES = ("MODEL", "CLIP", "VAE")
+    FUNCTION = "load_checkpoint"
 
-#     CATEGORY = "advanced/loaders"
-#     DEPRECATED = True
+    CATEGORY = "advanced/loaders"
+    DEPRECATED = True
 
-#     def load_checkpoint(self, config_name, ckpt_name):
-#         config_path = folder_paths.get_full_path("configs", config_name)
-#         ckpt_path = folder_paths.get_full_path_or_raise("checkpoints", ckpt_name)
-#         return comfy.sd.load_checkpoint(config_path, ckpt_path, output_vae=True, output_clip=True, embedding_directory=folder_paths.get_folder_paths("embeddings"))
+    def load_checkpoint(self, config_name, ckpt_name):
+        config_path = folder_paths.get_full_path("configs", config_name)
+        ckpt_path = folder_paths.get_full_path_or_raise("checkpoints", ckpt_name)
+        return comfy.sd.load_checkpoint(config_path, ckpt_path, output_vae=True, output_clip=True, embedding_directory=folder_paths.get_folder_paths("embeddings"))
 
-# class CheckpointLoaderSimple:
-#     @classmethod
-#     def INPUT_TYPES(s):
-#         return {
-#             "required": {
-#                 "ckpt_name": (folder_paths.get_filename_list("checkpoints"), {"tooltip": "The name of the checkpoint (model) to load."}),
-#             }
-#         }
-#     RETURN_TYPES = ("MODEL", "CLIP", "VAE")
-#     OUTPUT_TOOLTIPS = ("The model used for denoising latents.",
-#                        "The CLIP model used for encoding text prompts.",
-#                        "The VAE model used for encoding and decoding images to and from latent space.")
-#     FUNCTION = "load_checkpoint"
+class CheckpointLoaderSimple:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "ckpt_name": (folder_paths.get_filename_list("checkpoints"), {"tooltip": "The name of the checkpoint (model) to load."}),
+            }
+        }
+    RETURN_TYPES = ("MODEL", "CLIP", "VAE")
+    OUTPUT_TOOLTIPS = ("The model used for denoising latents.",
+                       "The CLIP model used for encoding text prompts.",
+                       "The VAE model used for encoding and decoding images to and from latent space.")
+    FUNCTION = "load_checkpoint"
 
-#     CATEGORY = "loaders"
-#     DESCRIPTION = "Loads a diffusion model checkpoint, diffusion models are used to denoise latents."
+    CATEGORY = "loaders"
+    DESCRIPTION = "Loads a diffusion model checkpoint, diffusion models are used to denoise latents."
 
-#     def load_checkpoint(self, ckpt_name):
-#         ckpt_path = folder_paths.get_full_path_or_raise("checkpoints", ckpt_name)
-#         out = comfy.sd.load_checkpoint_guess_config(ckpt_path, output_vae=True, output_clip=True, embedding_directory=folder_paths.get_folder_paths("embeddings"))
-#         return out[:3]
+    def load_checkpoint(self, ckpt_name):
+        ckpt_path = folder_paths.get_full_path_or_raise("checkpoints", ckpt_name)
+        out = comfy.sd.load_checkpoint_guess_config(ckpt_path, output_vae=True, output_clip=True, embedding_directory=folder_paths.get_folder_paths("embeddings"))
+        return out[:3]
 
 # class DiffusersLoader:
 #     @classmethod
@@ -605,20 +605,20 @@ class LoadLatent:
 #         return comfy.diffusers_load.load_diffusers(model_path, output_vae=output_vae, output_clip=output_clip, embedding_directory=folder_paths.get_folder_paths("embeddings"))
 
 
-# class unCLIPCheckpointLoader:
-#     @classmethod
-#     def INPUT_TYPES(s):
-#         return {"required": { "ckpt_name": (folder_paths.get_filename_list("checkpoints"), ),
-#                              }}
-#     RETURN_TYPES = ("MODEL", "CLIP", "VAE", "CLIP_VISION")
-#     FUNCTION = "load_checkpoint"
+class unCLIPCheckpointLoader:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": { "ckpt_name": (folder_paths.get_filename_list("checkpoints"), ),
+                             }}
+    RETURN_TYPES = ("MODEL", "CLIP", "VAE", "CLIP_VISION")
+    FUNCTION = "load_checkpoint"
 
-#     CATEGORY = "loaders"
+    CATEGORY = "loaders"
 
-#     def load_checkpoint(self, ckpt_name, output_vae=True, output_clip=True):
-#         ckpt_path = folder_paths.get_full_path_or_raise("checkpoints", ckpt_name)
-#         out = comfy.sd.load_checkpoint_guess_config(ckpt_path, output_vae=True, output_clip=True, output_clipvision=True, embedding_directory=folder_paths.get_folder_paths("embeddings"))
-#         return out
+    def load_checkpoint(self, ckpt_name, output_vae=True, output_clip=True):
+        ckpt_path = folder_paths.get_full_path_or_raise("checkpoints", ckpt_name)
+        out = comfy.sd.load_checkpoint_guess_config(ckpt_path, output_vae=True, output_clip=True, output_clipvision=True, embedding_directory=folder_paths.get_folder_paths("embeddings"))
+        return out
 
 # class CLIPSetLastLayer:
 #     @classmethod
@@ -1623,81 +1623,81 @@ class PreviewImage(SaveImage):
                 "hidden": {"prompt": "PROMPT", "extra_pnginfo": "EXTRA_PNGINFO"},
                 }
 
-# class LoadImage:
-#     @classmethod
-#     def INPUT_TYPES(s):
-#         input_dir = folder_paths.get_input_directory()
-#         files = [f for f in os.listdir(input_dir) if os.path.isfile(os.path.join(input_dir, f))]
-#         files = folder_paths.filter_files_content_types(files, ["image"])
-#         return {"required":
-#                     {"image": (sorted(files), {"image_upload": True})},
-#                 }
+class LoadImage:
+    @classmethod
+    def INPUT_TYPES(s):
+        input_dir = folder_paths.get_input_directory()
+        files = [f for f in os.listdir(input_dir) if os.path.isfile(os.path.join(input_dir, f))]
+        files = folder_paths.filter_files_content_types(files, ["image"])
+        return {"required":
+                    {"image": (sorted(files), {"image_upload": True})},
+                }
 
-#     CATEGORY = "image"
+    CATEGORY = "image"
 
-#     RETURN_TYPES = ("IMAGE", "MASK")
-#     FUNCTION = "load_image"
-#     def load_image(self, image):
-#         image_path = folder_paths.get_annotated_filepath(image)
+    RETURN_TYPES = ("IMAGE", "MASK")
+    FUNCTION = "load_image"
+    def load_image(self, image):
+        image_path = folder_paths.get_annotated_filepath(image)
 
-#         img = node_helpers.pillow(Image.open, image_path)
+        img = node_helpers.pillow(Image.open, image_path)
 
-#         output_images = []
-#         output_masks = []
-#         w, h = None, None
+        output_images = []
+        output_masks = []
+        w, h = None, None
 
-#         excluded_formats = ['MPO']
+        excluded_formats = ['MPO']
 
-#         for i in ImageSequence.Iterator(img):
-#             i = node_helpers.pillow(ImageOps.exif_transpose, i)
+        for i in ImageSequence.Iterator(img):
+            i = node_helpers.pillow(ImageOps.exif_transpose, i)
 
-#             if i.mode == 'I':
-#                 i = i.point(lambda i: i * (1 / 255))
-#             image = i.convert("RGB")
+            if i.mode == 'I':
+                i = i.point(lambda i: i * (1 / 255))
+            image = i.convert("RGB")
 
-#             if len(output_images) == 0:
-#                 w = image.size[0]
-#                 h = image.size[1]
+            if len(output_images) == 0:
+                w = image.size[0]
+                h = image.size[1]
 
-#             if image.size[0] != w or image.size[1] != h:
-#                 continue
+            if image.size[0] != w or image.size[1] != h:
+                continue
 
-#             image = np.array(image).astype(np.float32) / 255.0
-#             image = torch.from_numpy(image)[None,]
-#             if 'A' in i.getbands():
-#                 mask = np.array(i.getchannel('A')).astype(np.float32) / 255.0
-#                 mask = 1. - torch.from_numpy(mask)
-#             elif i.mode == 'P' and 'transparency' in i.info:
-#                 mask = np.array(i.convert('RGBA').getchannel('A')).astype(np.float32) / 255.0
-#                 mask = 1. - torch.from_numpy(mask)
-#             else:
-#                 mask = torch.zeros((64,64), dtype=mindspore.float32, device="cpu")
-#             output_images.append(image)
-#             output_masks.append(mask.unsqueeze(0))
+            image = np.array(image).astype(np.float32) / 255.0
+            image = mindspore.Tensor.from_numpy(image)[None,]
+            if 'A' in i.getbands():
+                mask = np.array(i.getchannel('A')).astype(np.float32) / 255.0
+                mask = 1. - mindspore.Tensor.from_numpy(mask)
+            elif i.mode == 'P' and 'transparency' in i.info:
+                mask = np.array(i.convert('RGBA').getchannel('A')).astype(np.float32) / 255.0
+                mask = 1. - mindspore.Tensor.from_numpy(mask)
+            else:
+                mask = mint.zeros((64,64), dtype=mindspore.float32)
+            output_images.append(image)
+            output_masks.append(mask.unsqueeze(0))
 
-#         if len(output_images) > 1 and img.format not in excluded_formats:
-#             output_image = torch.cat(output_images, dim=0)
-#             output_mask = torch.cat(output_masks, dim=0)
-#         else:
-#             output_image = output_images[0]
-#             output_mask = output_masks[0]
+        if len(output_images) > 1 and img.format not in excluded_formats:
+            output_image = mint.cat(output_images, dim=0)
+            output_mask = mint.cat(output_masks, dim=0)
+        else:
+            output_image = output_images[0]
+            output_mask = output_masks[0]
 
-#         return (output_image, output_mask)
+        return (output_image, output_mask)
 
-#     @classmethod
-#     def IS_CHANGED(s, image):
-#         image_path = folder_paths.get_annotated_filepath(image)
-#         m = hashlib.sha256()
-#         with open(image_path, 'rb') as f:
-#             m.update(f.read())
-#         return m.digest().hex()
+    @classmethod
+    def IS_CHANGED(s, image):
+        image_path = folder_paths.get_annotated_filepath(image)
+        m = hashlib.sha256()
+        with open(image_path, 'rb') as f:
+            m.update(f.read())
+        return m.digest().hex()
 
-#     @classmethod
-#     def VALIDATE_INPUTS(s, image):
-#         if not folder_paths.exists_annotated_filepath(image):
-#             return "Invalid image file: {}".format(image)
+    @classmethod
+    def VALIDATE_INPUTS(s, image):
+        if not folder_paths.exists_annotated_filepath(image):
+            return "Invalid image file: {}".format(image)
 
-#         return True
+        return True
 
 # class LoadImageMask:
 #     _color_channels = ["alpha", "red", "green", "blue"]
@@ -1941,7 +1941,7 @@ class PreviewImage(SaveImage):
 
 NODE_CLASS_MAPPINGS = {
     "KSampler": KSampler,
-    # "CheckpointLoaderSimple": CheckpointLoaderSimple,
+    "CheckpointLoaderSimple": CheckpointLoaderSimple,
     "CLIPTextEncode": CLIPTextEncode,
     # "CLIPSetLastLayer": CLIPSetLastLayer,
     "VAEDecode": VAEDecode,
@@ -1998,7 +1998,7 @@ NODE_CLASS_MAPPINGS = {
     # "GLIGENTextBoxApply": GLIGENTextBoxApply,
     # "InpaintModelConditioning": InpaintModelConditioning,
 
-    # "CheckpointLoader": CheckpointLoader,
+    "CheckpointLoader": CheckpointLoader,
     # "DiffusersLoader": DiffusersLoader,
 
     # "LoadLatent": LoadLatent,

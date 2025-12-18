@@ -165,16 +165,16 @@ class ModelSamplingDiscrete(mindspore.nn.Cell):
 
     def timestep(self, sigma):
         log_sigma = sigma.log()
-        dists = log_sigma.to(self.log_sigmas.device) - self.log_sigmas[:, None]
-        return dists.abs().argmin(dim=0).view(sigma.shape).to(sigma.device)
+        dists = log_sigma - self.log_sigmas[:, None]
+        return dists.abs().argmin(dim=0).view(sigma.shape)
 
     def sigma(self, timestep):
-        t = mint.clamp(timestep.float().to(self.log_sigmas.device), min=0, max=(len(self.sigmas) - 1))
+        t = mint.clamp(timestep.float(), min=0, max=(len(self.sigmas) - 1))
         low_idx = t.floor().long()
         high_idx = t.ceil().long()
         w = t.frac()
         log_sigma = (1 - w) * self.log_sigmas[low_idx] + w * self.log_sigmas[high_idx]
-        return log_sigma.exp().to(timestep.device)
+        return log_sigma.exp()
 
     def percent_to_sigma(self, percent):
         if percent <= 0.0:
@@ -326,7 +326,7 @@ class StableCascadeSampling(ModelSamplingDiscrete):
     def timestep(self, sigma):
         var = 1 / ((sigma * sigma) + 1)
         var = var.clamp(0, 1.0)
-        s, min_var = self.cosine_s.to(var.device), self._init_alpha_cumprod.to(var.device)
+        s, min_var = self.cosine_s, self._init_alpha_cumprod
         t = (((var * min_var) ** 0.5).acos() / (mindspore.tensor(np.pi) * 0.5)) * (1 + s) - s
         return t
 

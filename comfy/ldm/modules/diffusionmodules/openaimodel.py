@@ -240,7 +240,7 @@ class ResBlock(TimestepBlock):
         # return checkpoint(
         #     self._forward, (x, emb), self.get_parameters(), self.use_checkpoint
         # )
-        return mindspore.recompute(self._forward, x, emb)
+        return self._forward(x, emb)
 
 
     def _forward(self, x, emb):
@@ -440,6 +440,7 @@ class UNetModel(nn.Cell):
         disable_temporal_crossattention=False,
         max_ddpm_temb_period=10000,
         attn_precision=None,
+        device=None,
         operations=ops,
     ):
         super().__init__()
@@ -519,7 +520,7 @@ class UNetModel(nn.Cell):
             else:
                 raise ValueError()
 
-        self.input_blocks = nn.CellList(
+        self.input_blocks = mindspore.nn.CellList(
             [
                 TimestepEmbedSequential(
                     operations.conv_nd(dims, in_channels, model_channels, 3, padding=1, dtype=self.dtype)
@@ -736,7 +737,7 @@ class UNetModel(nn.Cell):
             self.middle_block = TimestepEmbedSequential(*mid_block)
         self._feature_size += ch
 
-        self.output_blocks = nn.CellList([])
+        self.output_blocks = mindspore.nn.CellList([])
         for level, mult in list(enumerate(channel_mult))[::-1]:
             for i in range(self.num_res_blocks[level] + 1):
                 ich = input_block_chans.pop()
