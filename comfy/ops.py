@@ -373,6 +373,9 @@ class disable_weight_init:
             uncast_bias_weight(self, weight, bias, None)
             return x
 
+        def _zero_weight_by_index(self, init_tensor):
+            return init_tensor
+
         def construct(self, *args, **kwargs):
             run_every_op()
             if self.comfy_cast_weights or len(self.weight_function) > 0 or len(self.bias_function) > 0:
