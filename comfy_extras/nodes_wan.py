@@ -1,8 +1,9 @@
 import math
 import nodes
 import node_helpers
-import torch
-import comfy.model_management
+import mindspore as ms
+from mindspore import mint
+# import comfy.model_management # for device
 import comfy.utils
 import comfy.latent_formats
 import comfy.clip_vision
@@ -38,14 +39,14 @@ class WanImageToVideo(io.ComfyNode):
 
     @classmethod
     def execute(cls, positive, negative, vae, width, height, length, batch_size, start_image=None, clip_vision_output=None) -> io.NodeOutput:
-        latent = torch.zeros([batch_size, 16, ((length - 1) // 4) + 1, height // 8, width // 8], device=comfy.model_management.intermediate_device())
+        latent = mint.zeros([batch_size, 16, ((length - 1) // 4) + 1, height // 8, width // 8])
         if start_image is not None:
             start_image = comfy.utils.common_upscale(start_image[:length].movedim(-1, 1), width, height, "bilinear", "center").movedim(1, -1)
-            image = torch.ones((length, height, width, start_image.shape[-1]), device=start_image.device, dtype=start_image.dtype) * 0.5
+            image = mint.ones((length, height, width, start_image.shape[-1]), dtype=start_image.dtype) * 0.5
             image[:start_image.shape[0]] = start_image
 
             concat_latent_image = vae.encode(image[:, :, :, :3])
-            mask = torch.ones((1, 1, latent.shape[2], concat_latent_image.shape[-2], concat_latent_image.shape[-1]), device=start_image.device, dtype=start_image.dtype)
+            mask = mint.ones((1, 1, latent.shape[2], concat_latent_image.shape[-2], concat_latent_image.shape[-1]), dtype=start_image.dtype)
             mask[:, :, :((start_image.shape[0] - 1) // 4) + 1] = 0.0
 
             positive = node_helpers.conditioning_set_values(positive, {"concat_latent_image": concat_latent_image, "concat_mask": mask})
@@ -87,8 +88,8 @@ class WanFunControlToVideo(io.ComfyNode):
 
     @classmethod
     def execute(cls, positive, negative, vae, width, height, length, batch_size, start_image=None, clip_vision_output=None, control_video=None) -> io.NodeOutput:
-        latent = torch.zeros([batch_size, 16, ((length - 1) // 4) + 1, height // 8, width // 8], device=comfy.model_management.intermediate_device())
-        concat_latent = torch.zeros([batch_size, 16, ((length - 1) // 4) + 1, height // 8, width // 8], device=comfy.model_management.intermediate_device())
+        latent = mint.zeros([batch_size, 16, ((length - 1) // 4) + 1, height // 8, width // 8])
+        concat_latent = mint.zeros([batch_size, 16, ((length - 1) // 4) + 1, height // 8, width // 8])
         concat_latent = comfy.latent_formats.Wan21().process_out(concat_latent)
         concat_latent = concat_latent.repeat(1, 2, 1, 1, 1)
 
@@ -141,14 +142,14 @@ class Wan22FunControlToVideo(io.ComfyNode):
     def execute(cls, positive, negative, vae, width, height, length, batch_size, ref_image=None, start_image=None, control_video=None) -> io.NodeOutput:
         spacial_scale = vae.spacial_compression_encode()
         latent_channels = vae.latent_channels
-        latent = torch.zeros([batch_size, latent_channels, ((length - 1) // 4) + 1, height // spacial_scale, width // spacial_scale], device=comfy.model_management.intermediate_device())
-        concat_latent = torch.zeros([batch_size, latent_channels, ((length - 1) // 4) + 1, height // spacial_scale, width // spacial_scale], device=comfy.model_management.intermediate_device())
+        latent = mint.zeros([batch_size, latent_channels, ((length - 1) // 4) + 1, height // spacial_scale, width // spacial_scale])
+        concat_latent = mint.zeros([batch_size, latent_channels, ((length - 1) // 4) + 1, height // spacial_scale, width // spacial_scale])
         if latent_channels == 48:
             concat_latent = comfy.latent_formats.Wan22().process_out(concat_latent)
         else:
             concat_latent = comfy.latent_formats.Wan21().process_out(concat_latent)
         concat_latent = concat_latent.repeat(1, 2, 1, 1, 1)
-        mask = torch.ones((1, 1, latent.shape[2] * 4, latent.shape[-2], latent.shape[-1]))
+        mask = mint.ones((1, 1, latent.shape[2] * 4, latent.shape[-2], latent.shape[-1]))
 
         if start_image is not None:
             start_image = comfy.utils.common_upscale(start_image[:length].movedim(-1, 1), width, height, "bilinear", "center").movedim(1, -1)
@@ -207,14 +208,14 @@ class WanFirstLastFrameToVideo(io.ComfyNode):
     @classmethod
     def execute(cls, positive, negative, vae, width, height, length, batch_size, start_image=None, end_image=None, clip_vision_start_image=None, clip_vision_end_image=None) -> io.NodeOutput:
         spacial_scale = vae.spacial_compression_encode()
-        latent = torch.zeros([batch_size, vae.latent_channels, ((length - 1) // 4) + 1, height // spacial_scale, width // spacial_scale], device=comfy.model_management.intermediate_device())
+        latent = mint.zeros([batch_size, vae.latent_channels, ((length - 1) // 4) + 1, height // spacial_scale, width // spacial_scale])
         if start_image is not None:
             start_image = comfy.utils.common_upscale(start_image[:length].movedim(-1, 1), width, height, "bilinear", "center").movedim(1, -1)
         if end_image is not None:
             end_image = comfy.utils.common_upscale(end_image[-length:].movedim(-1, 1), width, height, "bilinear", "center").movedim(1, -1)
 
-        image = torch.ones((length, height, width, 3)) * 0.5
-        mask = torch.ones((1, 1, latent.shape[2] * 4, latent.shape[-2], latent.shape[-1]))
+        image = mint.ones((length, height, width, 3)) * 0.5
+        mask = mint.ones((1, 1, latent.shape[2] * 4, latent.shape[-2], latent.shape[-1]))
 
         if start_image is not None:
             image[:start_image.shape[0]] = start_image
@@ -235,7 +236,7 @@ class WanFirstLastFrameToVideo(io.ComfyNode):
 
         if clip_vision_end_image is not None:
             if clip_vision_output is not None:
-                states = torch.cat([clip_vision_output.penultimate_hidden_states, clip_vision_end_image.penultimate_hidden_states], dim=-2)
+                states = mint.cat([clip_vision_output.penultimate_hidden_states, clip_vision_end_image.penultimate_hidden_states], dim=-2)
                 clip_vision_output = comfy.clip_vision.Output()
                 clip_vision_output.penultimate_hidden_states = states
             else:
@@ -314,24 +315,24 @@ class WanVaceToVideo(io.ComfyNode):
         if control_video is not None:
             control_video = comfy.utils.common_upscale(control_video[:length].movedim(-1, 1), width, height, "bilinear", "center").movedim(1, -1)
             if control_video.shape[0] < length:
-                control_video = torch.nn.functional.pad(control_video, (0, 0, 0, 0, 0, 0, 0, length - control_video.shape[0]), value=0.5)
+                control_video = mint.functional.pad(control_video, (0, 0, 0, 0, 0, 0, 0, length - control_video.shape[0]), value=0.5)
         else:
-            control_video = torch.ones((length, height, width, 3)) * 0.5
+            control_video = mint.ones((length, height, width, 3)) * 0.5
 
         if reference_image is not None:
             reference_image = comfy.utils.common_upscale(reference_image[:1].movedim(-1, 1), width, height, "bilinear", "center").movedim(1, -1)
             reference_image = vae.encode(reference_image[:, :, :, :3])
-            reference_image = torch.cat([reference_image, comfy.latent_formats.Wan21().process_out(torch.zeros_like(reference_image))], dim=1)
+            reference_image = mint.cat([reference_image, comfy.latent_formats.Wan21().process_out(mint.zeros_like(reference_image))], dim=1)
 
         if control_masks is None:
-            mask = torch.ones((length, height, width, 1))
+            mask = mint.ones((length, height, width, 1))
         else:
             mask = control_masks
             if mask.ndim == 3:
                 mask = mask.unsqueeze(1)
             mask = comfy.utils.common_upscale(mask[:length], width, height, "bilinear", "center").movedim(1, -1)
             if mask.shape[0] < length:
-                mask = torch.nn.functional.pad(mask, (0, 0, 0, 0, 0, 0, 0, length - mask.shape[0]), value=1.0)
+                mask = mint.functional.pad(mask, (0, 0, 0, 0, 0, 0, 0, length - mask.shape[0]), value=1.0)
 
         control_video = control_video - 0.5
         inactive = (control_video * (1 - mask)) + 0.5
@@ -339,9 +340,9 @@ class WanVaceToVideo(io.ComfyNode):
 
         inactive = vae.encode(inactive[:, :, :, :3])
         reactive = vae.encode(reactive[:, :, :, :3])
-        control_video_latent = torch.cat((inactive, reactive), dim=1)
+        control_video_latent = mint.cat((inactive, reactive), dim=1)
         if reference_image is not None:
-            control_video_latent = torch.cat((reference_image, control_video_latent), dim=2)
+            control_video_latent = mint.cat((reference_image, control_video_latent), dim=2)
 
         vae_stride = 8
         height_mask = height // vae_stride
@@ -349,12 +350,12 @@ class WanVaceToVideo(io.ComfyNode):
         mask = mask.view(length, height_mask, vae_stride, width_mask, vae_stride)
         mask = mask.permute(2, 4, 0, 1, 3)
         mask = mask.reshape(vae_stride * vae_stride, length, height_mask, width_mask)
-        mask = torch.nn.functional.interpolate(mask.unsqueeze(0), size=(latent_length, height_mask, width_mask), mode='nearest-exact').squeeze(0)
+        mask = mint.functional.interpolate(mask.unsqueeze(0), size=(latent_length, height_mask, width_mask), mode='nearest-exact').squeeze(0)
 
         trim_latent = 0
         if reference_image is not None:
-            mask_pad = torch.zeros_like(mask[:, :reference_image.shape[2], :, :])
-            mask = torch.cat((mask_pad, mask), dim=1)
+            mask_pad = mint.zeros_like(mask[:, :reference_image.shape[2], :, :])
+            mask = mint.cat((mask_pad, mask), dim=1)
             latent_length += reference_image.shape[2]
             trim_latent = reference_image.shape[2]
 
@@ -363,7 +364,7 @@ class WanVaceToVideo(io.ComfyNode):
         positive = node_helpers.conditioning_set_values(positive, {"vace_frames": [control_video_latent], "vace_mask": [mask], "vace_strength": [strength]}, append=True)
         negative = node_helpers.conditioning_set_values(negative, {"vace_frames": [control_video_latent], "vace_mask": [mask], "vace_strength": [strength]}, append=True)
 
-        latent = torch.zeros([batch_size, 16, latent_length, height // 8, width // 8], device=comfy.model_management.intermediate_device())
+        latent = mint.zeros([batch_size, 16, latent_length, height // 8, width // 8])
         out_latent = {}
         out_latent["samples"] = latent
         return io.NodeOutput(positive, negative, out_latent, trim_latent)
@@ -418,15 +419,15 @@ class WanCameraImageToVideo(io.ComfyNode):
 
     @classmethod
     def execute(cls, positive, negative, vae, width, height, length, batch_size, start_image=None, clip_vision_output=None, camera_conditions=None) -> io.NodeOutput:
-        latent = torch.zeros([batch_size, 16, ((length - 1) // 4) + 1, height // 8, width // 8], device=comfy.model_management.intermediate_device())
-        concat_latent = torch.zeros([batch_size, 16, ((length - 1) // 4) + 1, height // 8, width // 8], device=comfy.model_management.intermediate_device())
+        latent = mint.zeros([batch_size, 16, ((length - 1) // 4) + 1, height // 8, width // 8])
+        concat_latent = mint.zeros([batch_size, 16, ((length - 1) // 4) + 1, height // 8, width // 8])
         concat_latent = comfy.latent_formats.Wan21().process_out(concat_latent)
 
         if start_image is not None:
             start_image = comfy.utils.common_upscale(start_image[:length].movedim(-1, 1), width, height, "bilinear", "center").movedim(1, -1)
             concat_latent_image = vae.encode(start_image[:, :, :, :3])
             concat_latent[:,:,:concat_latent_image.shape[2]] = concat_latent_image[:,:,:concat_latent.shape[2]]
-            mask = torch.ones((1, 1, latent.shape[2] * 4, latent.shape[-2], latent.shape[-1]))
+            mask = mint.ones((1, 1, latent.shape[2] * 4, latent.shape[-2], latent.shape[-1]))
             mask[:, :, :start_image.shape[0] + 3] = 0.0
             mask = mask.view(1, mask.shape[2] // 4, 4, mask.shape[3], mask.shape[4]).transpose(1, 2)
 
@@ -471,18 +472,18 @@ class WanPhantomSubjectToVideo(io.ComfyNode):
 
     @classmethod
     def execute(cls, positive, negative, vae, width, height, length, batch_size, images) -> io.NodeOutput:
-        latent = torch.zeros([batch_size, 16, ((length - 1) // 4) + 1, height // 8, width // 8], device=comfy.model_management.intermediate_device())
+        latent = mint.zeros([batch_size, 16, ((length - 1) // 4) + 1, height // 8, width // 8])
         cond2 = negative
         if images is not None:
             images = comfy.utils.common_upscale(images[:length].movedim(-1, 1), width, height, "bilinear", "center").movedim(1, -1)
             latent_images = []
             for i in images:
                 latent_images += [vae.encode(i.unsqueeze(0)[:, :, :, :3])]
-            concat_latent_image = torch.cat(latent_images, dim=2)
+            concat_latent_image = mint.cat(latent_images, dim=2)
 
             positive = node_helpers.conditioning_set_values(positive, {"time_dim_concat": concat_latent_image})
             cond2 = node_helpers.conditioning_set_values(negative, {"time_dim_concat": concat_latent_image})
-            negative = node_helpers.conditioning_set_values(negative, {"time_dim_concat": comfy.latent_formats.Wan21().process_out(torch.zeros_like(concat_latent_image))})
+            negative = node_helpers.conditioning_set_values(negative, {"time_dim_concat": comfy.latent_formats.Wan21().process_out(mint.zeros_like(concat_latent_image))})
 
         out_latent = {}
         out_latent["samples"] = latent
@@ -520,34 +521,34 @@ def parse_json_tracks(tracks):
 def process_tracks(tracks_np: np.ndarray, frame_size: Tuple[int, int], num_frames, quant_multi: int = 8, **kwargs):
     # tracks: shape [t, h, w, 3] => samples align with 24 fps, model trained with 16 fps.
     # frame_size: tuple (W, H)
-    tracks = torch.from_numpy(tracks_np).float()
+    tracks = ms.tensor(tracks_np).float()
 
     if tracks.shape[1] == 121:
-        tracks = torch.permute(tracks, (1, 0, 2, 3))
+        tracks = mint.permute(tracks, (1, 0, 2, 3))
 
     tracks, visibles = tracks[..., :2], tracks[..., 2:3]
 
     short_edge = min(*frame_size)
 
-    frame_center = torch.tensor([*frame_size]).type_as(tracks) / 2
+    frame_center = ms.tensor([*frame_size]).type_as(tracks) / 2
     tracks = tracks - frame_center
 
     tracks = tracks / short_edge * 2
 
     visibles = visibles * 2 - 1
 
-    trange = torch.linspace(-1, 1, tracks.shape[0]).view(-1, 1, 1, 1).expand(*visibles.shape)
+    trange = mint.linspace(-1, 1, tracks.shape[0]).view(-1, 1, 1, 1).expand(*visibles.shape)
 
-    out_ = torch.cat([trange, tracks, visibles], dim=-1).view(121, -1, 4)
+    out_ = mint.cat([trange, tracks, visibles], dim=-1).view(121, -1, 4)
 
     out_0 = out_[:1]
 
     out_l = out_[1:] # 121 => 120 | 1
     a = 120 // math.gcd(120, num_frames)
     b = num_frames // math.gcd(120, num_frames)
-    out_l = torch.repeat_interleave(out_l, b, dim=0)[1::a]  # 120 => 120 * b => 120 * b / a == F
+    out_l = mint.repeat_interleave(out_l, b, dim=0)[1::a]  # 120 => 120 * b => 120 * b / a == F
 
-    final_result = torch.cat([out_0, out_l], dim=0)
+    final_result = mint.cat([out_0, out_l], dim=0)
 
     return final_result
 
@@ -563,7 +564,7 @@ def pad_pts(tr):
         pts = pts[:FIXED_LENGTH]
     return pts.reshape(FIXED_LENGTH, 1, 3)
 
-def ind_sel(target: torch.Tensor, ind: torch.Tensor, dim: int = 1):
+def ind_sel(target: ms.Tensor, ind: ms.Tensor, dim: int = 1):
     """Index selection utility function"""
     assert (
         len(ind.shape) > dim
@@ -586,29 +587,29 @@ def ind_sel(target: torch.Tensor, ind: torch.Tensor, dim: int = 1):
             ind_pad = ind_pad.unsqueeze(-1)
         ind_pad = ind_pad.expand(*(-1,) * (dim + 1), *target.shape[(dim + 1) : :])
 
-    return torch.gather(target, dim=dim, index=ind_pad)
+    return mint.gather(target, dim=dim, index=ind_pad)
 
-def merge_final(vert_attr: torch.Tensor, weight: torch.Tensor, vert_assign: torch.Tensor):
+def merge_final(vert_attr: ms.Tensor, weight: ms.Tensor, vert_assign: ms.Tensor):
     """Merge vertex attributes with weights"""
     target_dim = len(vert_assign.shape) - 1
     if len(vert_attr.shape) == 2:
         assert vert_attr.shape[0] > vert_assign.max()
         new_shape = [1] * target_dim + list(vert_attr.shape)
         tensor = vert_attr.reshape(new_shape)
-        sel_attr = ind_sel(tensor, vert_assign.type(torch.long), dim=target_dim)
+        sel_attr = ind_sel(tensor, vert_assign.type(ms.int64), dim=target_dim)
     else:
         assert vert_attr.shape[1] > vert_assign.max()
         new_shape = [vert_attr.shape[0]] + [1] * (target_dim - 1) + list(vert_attr.shape[1:])
         tensor = vert_attr.reshape(new_shape)
-        sel_attr = ind_sel(tensor, vert_assign.type(torch.long), dim=target_dim)
+        sel_attr = ind_sel(tensor, vert_assign.type(ms.int64), dim=target_dim)
 
-    final_attr = torch.sum(sel_attr * weight.unsqueeze(-1), dim=-2)
+    final_attr = mint.sum(sel_attr * weight.unsqueeze(-1), dim=-2)
     return final_attr
 
 
 def _patch_motion_single(
-    tracks: torch.FloatTensor,  # (B, T, N, 4)
-    vid: torch.FloatTensor,     # (C, T, H, W)
+    tracks: ms.Tensor,  # (B, T, N, 4)
+    vid: ms.Tensor,     # (C, T, H, W)
     temperature: float,
     vae_divide: tuple,
     topk: int,
@@ -616,19 +617,17 @@ def _patch_motion_single(
     """Apply motion patching based on tracks"""
     _, T, H, W = vid.shape
     N = tracks.shape[2]
-    _, tracks_xy, visible = torch.split(
+    _, tracks_xy, visible = mint.split(
         tracks, [1, 2, 1], dim=-1
     )  # (B, T, N, 2) | (B, T, N, 1)
-    tracks_n = tracks_xy / torch.tensor([W / min(H, W), H / min(H, W)], device=tracks_xy.device)
+    tracks_n = tracks_xy / ms.tensor([W / min(H, W), H / min(H, W)])
     tracks_n = tracks_n.clamp(-1, 1)
     visible = visible.clamp(0, 1)
 
-    xx = torch.linspace(-W / min(H, W), W / min(H, W), W)
-    yy = torch.linspace(-H / min(H, W), H / min(H, W), H)
+    xx = mint.linspace(-W / min(H, W), W / min(H, W), W)
+    yy = mint.linspace(-H / min(H, W), H / min(H, W), H)
 
-    grid = torch.stack(torch.meshgrid(yy, xx, indexing="ij")[::-1], dim=-1).to(
-        tracks_xy.device
-    )
+    grid = mint.stack(mint.meshgrid(yy, xx, indexing="ij")[::-1], dim=-1)
 
     tracks_pad = tracks_xy[:, 1:]
     visible_pad = visible[:, 1:]
@@ -640,15 +639,15 @@ def _patch_motion_single(
     dist_ = (
         (tracks_align[:, None, None] - grid[None, :, :, None]).pow(2).sum(-1)
     )  # T, H, W, N
-    weight = torch.exp(-dist_ * temperature) * visible_align.clamp(0, 1).view(
+    weight = mint.exp(-dist_ * temperature) * visible_align.clamp(0, 1).view(
         T - 1, 1, 1, N
     )
-    vert_weight, vert_index = torch.topk(
+    vert_weight, vert_index = mint.topk(
         weight, k=min(topk, weight.shape[-1]), dim=-1
     )
 
     grid_mode = "bilinear"
-    point_feature = torch.nn.functional.grid_sample(
+    point_feature = mint.functional.grid_sample(
         vid.permute(1, 0, 2, 3)[:1],
         tracks_n[:, :1].type(vid.dtype),
         mode=grid_mode,
@@ -663,15 +662,15 @@ def _patch_motion_single(
     # out feature -> already soft weighted
     mix_feature = out_feature + vid[:, 1:] * (1 - out_weight.clamp(0, 1))
 
-    out_feature_full = torch.cat([vid[:, :1], mix_feature], dim=1) # C, T, H, W
-    out_mask_full = torch.cat([torch.ones_like(out_weight[:1]), out_weight], dim=0)  # T, H, W
+    out_feature_full = mint.cat([vid[:, :1], mix_feature], dim=1) # C, T, H, W
+    out_mask_full = mint.cat([mint.ones_like(out_weight[:1]), out_weight], dim=0)  # T, H, W
 
     return out_mask_full[None].expand(vae_divide[0], -1, -1, -1), out_feature_full
 
 
 def patch_motion(
-    tracks: torch.FloatTensor,  # (B, TB, T, N, 4)
-    vid: torch.FloatTensor,     # (C, T, H, W)
+    tracks: ms.Tensor,  # (B, TB, T, N, 4)
+    vid: ms.Tensor,     # (C, T, H, W)
     temperature: float = 220.0,
     vae_divide: tuple = (4, 16),
     topk: int = 2,
@@ -694,8 +693,8 @@ def patch_motion(
         out_features.append(feature)
 
     # Stack results: (B, C, T, H, W)
-    out_mask_full = torch.stack(out_masks, dim=0)
-    out_feature_full = torch.stack(out_features, dim=0)
+    out_mask_full = mint.stack(out_masks, dim=0)
+    out_feature_full = mint.stack(out_features, dim=0)
 
     return out_mask_full, out_feature_full
 
@@ -735,8 +734,7 @@ class WanTrackToVideo(io.ComfyNode):
         if not tracks_data:
             return WanImageToVideo().execute(positive, negative, vae, width, height, length, batch_size, start_image=start_image, clip_vision_output=clip_vision_output)
 
-        latent = torch.zeros([batch_size, 16, ((length - 1) // 4) + 1, height // 8, width // 8],
-                           device=comfy.model_management.intermediate_device())
+        latent = mint.zeros([batch_size, 16, ((length - 1) // 4) + 1, height // 8, width // 8])
 
         if isinstance(tracks_data[0][0], dict):
             tracks_data = [tracks_data]
@@ -753,7 +751,7 @@ class WanTrackToVideo(io.ComfyNode):
 
         if start_image is not None:
             start_image = comfy.utils.common_upscale(start_image[:batch_size].movedim(-1, 1), width, height, "bilinear", "center").movedim(1, -1)
-            videos = torch.ones((start_image.shape[0], length, height, width, start_image.shape[-1]), device=start_image.device, dtype=start_image.dtype) * 0.5
+            videos = mint.ones((start_image.shape[0], length, height, width, start_image.shape[-1]), dtype=start_image.dtype) * 0.5
             for i in range(start_image.shape[0]):
                 videos[i, 0] = start_image[i]
 
@@ -761,7 +759,7 @@ class WanTrackToVideo(io.ComfyNode):
             videos = comfy.utils.resize_to_batch_size(videos, batch_size)
             for i in range(batch_size):
                 latent_videos += [vae.encode(videos[i, :, :, :, :3])]
-            y = torch.cat(latent_videos, dim=0)
+            y = mint.cat(latent_videos, dim=0)
 
             # Scale latent since patch_motion is non-linear
             y = comfy.latent_formats.Wan21().process_in(y)
@@ -801,7 +799,7 @@ def linear_interpolation(features, input_fps, output_fps, output_len=None):
     seq_len = features.shape[2] / float(input_fps)  # T/f_a
     if output_len is None:
         output_len = int(seq_len * output_fps)  # f_m*T/f_a
-    output_features = torch.nn.functional.interpolate(
+    output_features = mint.functional.interpolate(
         features, size=output_len, align_corners=True,
         mode='linear')  # [1, 512, output_len]
     return output_features.transpose(1, 2)  # [1, output_len, 512]
@@ -873,10 +871,10 @@ def get_audio_embed_bucket_fps(audio_embed, fps=16, batch_frames=81, m=0, video_
             else:
                 frame_audio_embed = audio_embed[0][chosen_idx].flatten()
         else:
-            frame_audio_embed = torch.zeros([audio_dim * (2 * m + 1)], device=audio_embed.device) if not return_all_layers \
-                else torch.zeros([num_layers, audio_dim * (2 * m + 1)], device=audio_embed.device)
+            frame_audio_embed = mint.zeros([audio_dim * (2 * m + 1)]) if not return_all_layers \
+                else mint.zeros([num_layers, audio_dim * (2 * m + 1)])
         batch_audio_eb.append(frame_audio_embed)
-    batch_audio_eb = torch.cat([c.unsqueeze(0) for c in batch_audio_eb], dim=0)
+    batch_audio_eb = mint.cat([c.unsqueeze(0) for c in batch_audio_eb], dim=0)
 
     return batch_audio_eb, min_batch_num
 
@@ -884,7 +882,7 @@ def get_audio_embed_bucket_fps(audio_embed, fps=16, batch_frames=81, m=0, video_
 def wan_sound_to_video(positive, negative, vae, width, height, length, batch_size, frame_offset=0, ref_image=None, audio_encoder_output=None, control_video=None, ref_motion=None, ref_motion_latent=None):
     latent_t = ((length - 1) // 4) + 1
     if audio_encoder_output is not None:
-        feat = torch.cat(audio_encoder_output["encoded_audio_all_layers"])
+        feat = mint.cat(audio_encoder_output["encoded_audio_all_layers"])
         video_rate = 30
         fps = 16
         feat = linear_interpolation(feat, input_fps=50, output_fps=video_rate)
@@ -915,7 +913,7 @@ def wan_sound_to_video(positive, negative, vae, width, height, length, batch_siz
         ref_motion = comfy.utils.common_upscale(ref_motion.movedim(-1, 1), width, height, "bilinear", "center").movedim(1, -1)
 
         if ref_motion.shape[0] < 73:
-            r = torch.ones([73, height, width, 3]) * 0.5
+            r = mint.ones([73, height, width, 3]) * 0.5
             r[-ref_motion.shape[0]:] = ref_motion
             ref_motion = r
 
@@ -926,9 +924,9 @@ def wan_sound_to_video(positive, negative, vae, width, height, length, batch_siz
         positive = node_helpers.conditioning_set_values(positive, {"reference_motion": ref_motion_latent})
         negative = node_helpers.conditioning_set_values(negative, {"reference_motion": ref_motion_latent})
 
-    latent = torch.zeros([batch_size, 16, latent_t, height // 8, width // 8], device=comfy.model_management.intermediate_device())
+    latent = mint.zeros([batch_size, 16, latent_t, height // 8, width // 8])
 
-    control_video_out = comfy.latent_formats.Wan21().process_out(torch.zeros_like(latent))
+    control_video_out = comfy.latent_formats.Wan21().process_out(mint.zeros_like(latent))
     if control_video is not None:
         control_video = comfy.utils.common_upscale(control_video[:length].movedim(-1, 1), width, height, "bilinear", "center").movedim(1, -1)
         control_video = vae.encode(control_video[:, :, :, :3])
@@ -1012,28 +1010,28 @@ class WanSoundImageToVideoExtend(io.ComfyNode):
 
 
 def get_audio_emb_window(audio_emb, frame_num, frame0_idx, audio_shift=2):
-    zero_audio_embed = torch.zeros((audio_emb.shape[1], audio_emb.shape[2]), dtype=audio_emb.dtype, device=audio_emb.device)
-    zero_audio_embed_3 = torch.zeros((3, audio_emb.shape[1], audio_emb.shape[2]), dtype=audio_emb.dtype, device=audio_emb.device)  # device=audio_emb.device
+    zero_audio_embed = mint.zeros((audio_emb.shape[1], audio_emb.shape[2]), dtype=audio_emb.dtype)
+    zero_audio_embed_3 = mint.zeros((3, audio_emb.shape[1], audio_emb.shape[2]), dtype=audio_emb.dtype)  # device=audio_emb.device
     iter_ = 1 + (frame_num - 1) // 4
     audio_emb_wind = []
     for lt_i in range(iter_):
         if lt_i == 0:
             st = frame0_idx + lt_i - 2
             ed = frame0_idx + lt_i + 3
-            wind_feat = torch.stack([
+            wind_feat = mint.stack([
                 audio_emb[i] if (0 <= i < audio_emb.shape[0]) else zero_audio_embed
                 for i in range(st, ed)
             ], dim=0)
-            wind_feat = torch.cat((zero_audio_embed_3, wind_feat), dim=0)
+            wind_feat = mint.cat((zero_audio_embed_3, wind_feat), dim=0)
         else:
             st = frame0_idx + 1 + 4 * (lt_i - 1) - audio_shift
             ed = frame0_idx + 1 + 4 * lt_i + audio_shift
-            wind_feat = torch.stack([
+            wind_feat = mint.stack([
                 audio_emb[i] if (0 <= i < audio_emb.shape[0]) else zero_audio_embed
                 for i in range(st, ed)
             ], dim=0)
         audio_emb_wind.append(wind_feat)
-    audio_emb_wind = torch.stack(audio_emb_wind, dim=0)
+    audio_emb_wind = mint.stack(audio_emb_wind, dim=0)
 
     return audio_emb_wind, ed - audio_shift
 
@@ -1066,20 +1064,20 @@ class WanHuMoImageToVideo(io.ComfyNode):
     @classmethod
     def execute(cls, positive, negative, vae, width, height, length, batch_size, ref_image=None, audio_encoder_output=None) -> io.NodeOutput:
         latent_t = ((length - 1) // 4) + 1
-        latent = torch.zeros([batch_size, 16, latent_t, height // 8, width // 8], device=comfy.model_management.intermediate_device())
+        latent = mint.zeros([batch_size, 16, latent_t, height // 8, width // 8])
 
         if ref_image is not None:
             ref_image = comfy.utils.common_upscale(ref_image[:1].movedim(-1, 1), width, height, "bilinear", "center").movedim(1, -1)
             ref_latent = vae.encode(ref_image[:, :, :, :3])
             positive = node_helpers.conditioning_set_values(positive, {"reference_latents": [ref_latent]}, append=True)
-            negative = node_helpers.conditioning_set_values(negative, {"reference_latents": [torch.zeros_like(ref_latent)]}, append=True)
+            negative = node_helpers.conditioning_set_values(negative, {"reference_latents": [mint.zeros_like(ref_latent)]}, append=True)
         else:
-            zero_latent = torch.zeros([batch_size, 16, 1, height // 8, width // 8], device=comfy.model_management.intermediate_device())
+            zero_latent = mint.zeros([batch_size, 16, 1, height // 8, width // 8])
             positive = node_helpers.conditioning_set_values(positive, {"reference_latents": [zero_latent]}, append=True)
             negative = node_helpers.conditioning_set_values(negative, {"reference_latents": [zero_latent]}, append=True)
 
         if audio_encoder_output is not None:
-            audio_emb = torch.stack(audio_encoder_output["encoded_audio_all_layers"], dim=2)
+            audio_emb = mint.stack(audio_encoder_output["encoded_audio_all_layers"], dim=2)
             audio_len = audio_encoder_output["audio_samples"] // 640
             audio_emb = audio_emb[:, :audio_len * 2]
 
@@ -1088,15 +1086,15 @@ class WanHuMoImageToVideo(io.ComfyNode):
             feat2 = linear_interpolation(audio_emb[:, :, 16: 24].mean(dim=2), 50, 25)
             feat3 = linear_interpolation(audio_emb[:, :, 24: 32].mean(dim=2), 50, 25)
             feat4 = linear_interpolation(audio_emb[:, :, 32], 50, 25)
-            audio_emb = torch.stack([feat0, feat1, feat2, feat3, feat4], dim=2)[0]  # [T, 5, 1280]
+            audio_emb = mint.stack([feat0, feat1, feat2, feat3, feat4], dim=2)[0]  # [T, 5, 1280]
             audio_emb, _ = get_audio_emb_window(audio_emb, length, frame0_idx=0)
 
             audio_emb = audio_emb.unsqueeze(0)
-            audio_emb_neg = torch.zeros_like(audio_emb)
+            audio_emb_neg = mint.zeros_like(audio_emb)
             positive = node_helpers.conditioning_set_values(positive, {"audio_embed": audio_emb})
             negative = node_helpers.conditioning_set_values(negative, {"audio_embed": audio_emb_neg})
         else:
-            zero_audio = torch.zeros([batch_size, latent_t + 1, 8, 5, 1280], device=comfy.model_management.intermediate_device())
+            zero_audio = mint.zeros([batch_size, latent_t + 1, 8, 5, 1280])
             positive = node_helpers.conditioning_set_values(positive, {"audio_embed": zero_audio})
             negative = node_helpers.conditioning_set_values(negative, {"audio_embed": zero_audio})
 
@@ -1148,22 +1146,22 @@ class WanAnimateToVideo(io.ComfyNode):
         trim_latent = 0
 
         if reference_image is None:
-            reference_image = torch.zeros((1, height, width, 3))
+            reference_image = mint.zeros((1, height, width, 3))
 
         image = comfy.utils.common_upscale(reference_image[:length].movedim(-1, 1), width, height, "area", "center").movedim(1, -1)
         concat_latent_image = vae.encode(image[:, :, :, :3])
-        mask = torch.zeros((1, 4, concat_latent_image.shape[-3], concat_latent_image.shape[-2], concat_latent_image.shape[-1]), device=concat_latent_image.device, dtype=concat_latent_image.dtype)
+        mask = mint.zeros((1, 4, concat_latent_image.shape[-3], concat_latent_image.shape[-2], concat_latent_image.shape[-1]), dtype=concat_latent_image.dtype)
         trim_latent += concat_latent_image.shape[2]
         ref_motion_latent_length = 0
 
         if continue_motion is None:
-            image = torch.ones((length, height, width, 3)) * 0.5
+            image = mint.ones((length, height, width, 3)) * 0.5
         else:
             continue_motion = continue_motion[-continue_motion_max_frames:]
             video_frame_offset -= continue_motion.shape[0]
             video_frame_offset = max(0, video_frame_offset)
             continue_motion = comfy.utils.common_upscale(continue_motion[-length:].movedim(-1, 1), width, height, "area", "center").movedim(1, -1)
-            image = torch.ones((length, height, width, continue_motion.shape[-1]), device=continue_motion.device, dtype=continue_motion.dtype) * 0.5
+            image = mint.ones((length, height, width, continue_motion.shape[-1]), dtype=continue_motion.dtype) * 0.5
             image[:continue_motion.shape[0]] = continue_motion
             ref_motion_latent_length += ((continue_motion.shape[0] - 1) // 4) + 1
 
@@ -1181,7 +1179,7 @@ class WanAnimateToVideo(io.ComfyNode):
             pose_video = comfy.utils.common_upscale(pose_video[:length].movedim(-1, 1), width, height, "area", "center").movedim(1, -1)
             if not trim_to_pose_video:
                 if pose_video.shape[0] < length:
-                    pose_video = torch.cat((pose_video,) + (pose_video[-1:],) * (length - pose_video.shape[0]), dim=0)
+                    pose_video = mint.cat((pose_video,) + (pose_video[-1:],) * (length - pose_video.shape[0]), dim=0)
 
             pose_video_latent = vae.encode(pose_video[:, :, :, :3])
             positive = node_helpers.conditioning_set_values(positive, {"pose_video_latent": pose_video_latent})
@@ -1212,7 +1210,7 @@ class WanAnimateToVideo(io.ComfyNode):
                 if background_video.shape[0] > ref_images_num:
                     image[ref_images_num:background_video.shape[0]] = background_video[ref_images_num:]
 
-        mask_refmotion = torch.ones((1, 1, latent_length * 4, concat_latent_image.shape[-2], concat_latent_image.shape[-1]), device=mask.device, dtype=mask.dtype)
+        mask_refmotion = mint.ones((1, 1, latent_length * 4, concat_latent_image.shape[-2], concat_latent_image.shape[-1]), dtype=mask.dtype)
         if continue_motion is not None:
             mask_refmotion[:, :, :ref_motion_latent_length * 4] = 0.0
 
@@ -1231,15 +1229,15 @@ class WanAnimateToVideo(io.ComfyNode):
                 if character_mask.shape[2] > ref_images_num:
                     mask_refmotion[:, :, ref_images_num:character_mask.shape[2]] = character_mask[:, :, ref_images_num:]
 
-        concat_latent_image = torch.cat((concat_latent_image, vae.encode(image[:, :, :, :3])), dim=2)
+        concat_latent_image = mint.cat((concat_latent_image, vae.encode(image[:, :, :, :3])), dim=2)
 
 
         mask_refmotion = mask_refmotion.view(1, mask_refmotion.shape[2] // 4, 4, mask_refmotion.shape[3], mask_refmotion.shape[4]).transpose(1, 2)
-        mask = torch.cat((mask, mask_refmotion), dim=2)
+        mask = mint.cat((mask, mask_refmotion), dim=2)
         positive = node_helpers.conditioning_set_values(positive, {"concat_latent_image": concat_latent_image, "concat_mask": mask})
         negative = node_helpers.conditioning_set_values(negative, {"concat_latent_image": concat_latent_image, "concat_mask": mask})
 
-        latent = torch.zeros([batch_size, 16, latent_length + trim_latent, latent_height, latent_width], device=comfy.model_management.intermediate_device())
+        latent = mint.zeros([batch_size, 16, latent_length + trim_latent, latent_height, latent_width])
         out_latent = {}
         out_latent["samples"] = latent
         return io.NodeOutput(positive, negative, out_latent, trim_latent, max(0, ref_motion_latent_length * 4 - 3), video_frame_offset + length)
@@ -1265,14 +1263,14 @@ class Wan22ImageToVideoLatent(io.ComfyNode):
 
     @classmethod
     def execute(cls, vae, width, height, length, batch_size, start_image=None) -> io.NodeOutput:
-        latent = torch.zeros([1, 48, ((length - 1) // 4) + 1, height // 16, width // 16], device=comfy.model_management.intermediate_device())
+        latent = mint.zeros([1, 48, ((length - 1) // 4) + 1, height // 16, width // 16])
 
         if start_image is None:
             out_latent = {}
             out_latent["samples"] = latent
             return io.NodeOutput(out_latent)
 
-        mask = torch.ones([latent.shape[0], 1, ((length - 1) // 4) + 1, latent.shape[-2], latent.shape[-1]], device=comfy.model_management.intermediate_device())
+        mask = mint.ones([latent.shape[0], 1, ((length - 1) // 4) + 1, latent.shape[-2], latent.shape[-1]])
 
         if start_image is not None:
             start_image = comfy.utils.common_upscale(start_image[:length].movedim(-1, 1), width, height, "bilinear", "center").movedim(1, -1)

@@ -18,7 +18,7 @@ import comfy.text_encoders.flux
 import comfy.text_encoders.hunyuan_video
 # import comfy.text_encoders.cosmos
 # import comfy.text_encoders.lumina2
-# import comfy.text_encoders.wan
+import comfy.text_encoders.wan
 # import comfy.text_encoders.ace
 # import comfy.text_encoders.omnigen2
 import comfy.text_encoders.qwen_image
@@ -55,7 +55,7 @@ from . import diffusers_convert
 
 #         if 'cond_stage_model.transformer.text_model.embeddings.position_ids' in state_dict:
 #             ids = state_dict['cond_stage_model.transformer.text_model.embeddings.position_ids']
-#             if ids.dtype == torch.float32:
+#             if ids.dtype == mindspore.float32:
 #                 state_dict['cond_stage_model.transformer.text_model.embeddings.position_ids'] = ids.round()
 
 #         replace_prefix = {}
@@ -87,7 +87,7 @@ from . import diffusers_convert
 #     unet_extra_config = {
 #         "num_heads": -1,
 #         "num_head_channels": 64,
-#         "attn_precision": torch.float32,
+#         "attn_precision": mindspore.float32,
 #     }
 
 #     latent_format = latent_formats.SD15
@@ -309,7 +309,7 @@ from . import diffusers_convert
 #     unet_extra_config = {
 #         "num_heads": -1,
 #         "num_head_channels": 64,
-#         "attn_precision": torch.float32,
+#         "attn_precision": mindspore.float32,
 #     }
 
 #     clip_vision_prefix = "conditioner.embedders.0.open_clip.model.visual."
@@ -427,7 +427,7 @@ from . import diffusers_convert
 #     unet_extra_config = {}
 
 #     latent_format = latent_formats.SC_Prior
-#     supported_inference_dtypes = [torch.bfloat16, torch.float32]
+#     supported_inference_dtypes = [mindspore.bfloat16, mindspore.float32]
 
 #     sampling_settings = {
 #         "shift": 2.0,
@@ -473,7 +473,7 @@ from . import diffusers_convert
 #     unet_extra_config = {}
 
 #     latent_format = latent_formats.SC_B
-#     supported_inference_dtypes = [torch.float16, torch.bfloat16, torch.float32]
+#     supported_inference_dtypes = [mindspore.float16, mindspore.bfloat16, mindspore.float32]
 
 #     sampling_settings = {
 #         "shift": 1.0,
@@ -657,7 +657,7 @@ from . import diffusers_convert
 #     }
 
 #     unet_extra_config = {
-#         "attn_precision": torch.float32,
+#         "attn_precision": mindspore.float32,
 #     }
 
 #     sampling_settings = {
@@ -726,7 +726,7 @@ class Flux(supported_models_base.BASE):
 #         "in_channels": 96,
 #     }
 
-#     supported_inference_dtypes = [torch.bfloat16, torch.float32]
+#     supported_inference_dtypes = [mindspore.bfloat16, mindspore.float32]
 
 # class FluxSchnell(Flux):
 #     unet_config = {
@@ -758,7 +758,7 @@ class Flux(supported_models_base.BASE):
 
 #     memory_usage_factor = 2.0 #TODO
 
-#     supported_inference_dtypes = [torch.bfloat16, torch.float32]
+#     supported_inference_dtypes = [mindspore.bfloat16, mindspore.float32]
 
 #     vae_key_prefix = ["vae."]
 #     text_encoder_key_prefix = ["text_encoders."]
@@ -786,7 +786,7 @@ class Flux(supported_models_base.BASE):
 
 #     memory_usage_factor = 5.5 # TODO: img2vid is about 2x vs txt2vid
 
-#     supported_inference_dtypes = [torch.bfloat16, torch.float32]
+#     supported_inference_dtypes = [mindspore.bfloat16, mindspore.float32]
 
 #     vae_key_prefix = ["vae."]
 #     text_encoder_key_prefix = ["text_encoders."]
@@ -889,7 +889,7 @@ class HunyuanVideo(supported_models_base.BASE):
 
 #     memory_usage_factor = 1.6 #TODO
 
-#     supported_inference_dtypes = [torch.bfloat16, torch.float16, torch.float32] #TODO
+#     supported_inference_dtypes = [mindspore.bfloat16, mindspore.float16, mindspore.float32] #TODO
 
 #     vae_key_prefix = ["vae."]
 #     text_encoder_key_prefix = ["text_encoders."]
@@ -930,7 +930,7 @@ class HunyuanVideo(supported_models_base.BASE):
 
 #     memory_usage_factor = 1.0
 
-#     supported_inference_dtypes = [torch.bfloat16, torch.float32]
+#     supported_inference_dtypes = [mindspore.bfloat16, mindspore.float32]
 
 #     def __init__(self, unet_config):
 #         super().__init__(unet_config)
@@ -970,7 +970,7 @@ class HunyuanVideo(supported_models_base.BASE):
 #     unet_extra_config = {}
 #     latent_format = latent_formats.Flux
 
-#     supported_inference_dtypes = [torch.bfloat16, torch.float32]
+#     supported_inference_dtypes = [mindspore.bfloat16, mindspore.float32]
 
 #     vae_key_prefix = ["vae."]
 #     text_encoder_key_prefix = ["text_encoders."]
@@ -984,145 +984,145 @@ class HunyuanVideo(supported_models_base.BASE):
 #         hunyuan_detect = comfy.text_encoders.hunyuan_video.llama_detect(state_dict, "{}gemma2_2b.transformer.".format(pref))
 #         return supported_models_base.ClipTarget(comfy.text_encoders.lumina2.LuminaTokenizer, comfy.text_encoders.lumina2.te(**hunyuan_detect))
 
-# class WAN21_T2V(supported_models_base.BASE):
-#     unet_config = {
-#         "image_model": "wan2.1",
-#         "model_type": "t2v",
-#     }
+class WAN21_T2V(supported_models_base.BASE):
+    unet_config = {
+        "image_model": "wan2.1",
+        "model_type": "t2v",
+    }
 
-#     sampling_settings = {
-#         "shift": 8.0,
-#     }
+    sampling_settings = {
+        "shift": 8.0,
+    }
 
-#     unet_extra_config = {}
-#     latent_format = latent_formats.Wan21
+    unet_extra_config = {}
+    latent_format = latent_formats.Wan21
 
-#     memory_usage_factor = 0.9
+    memory_usage_factor = 0.9
 
-#     supported_inference_dtypes = [torch.float16, torch.bfloat16, torch.float32]
+    supported_inference_dtypes = [mindspore.float16, mindspore.bfloat16, mindspore.float32]
 
-#     vae_key_prefix = ["vae."]
-#     text_encoder_key_prefix = ["text_encoders."]
+    vae_key_prefix = ["vae."]
+    text_encoder_key_prefix = ["text_encoders."]
 
-#     def __init__(self, unet_config):
-#         super().__init__(unet_config)
-#         self.memory_usage_factor = self.unet_config.get("dim", 2000) / 2222
+    def __init__(self, unet_config):
+        super().__init__(unet_config)
+        self.memory_usage_factor = self.unet_config.get("dim", 2000) / 2222
 
-#     def get_model(self, state_dict, prefix="", device=None):
-#         out = model_base.WAN21(self, device=device)
-#         return out
+    def get_model(self, state_dict, prefix="", device=None):
+        out = model_base.WAN21(self, device=device)
+        return out
 
-#     def clip_target(self, state_dict={}):
-#         pref = self.text_encoder_key_prefix[0]
-#         t5_detect = comfy.text_encoders.sd3_clip.t5_xxl_detect(state_dict, "{}umt5xxl.transformer.".format(pref))
-#         return supported_models_base.ClipTarget(comfy.text_encoders.wan.WanT5Tokenizer, comfy.text_encoders.wan.te(**t5_detect))
+    def clip_target(self, state_dict={}):
+        pref = self.text_encoder_key_prefix[0]
+        t5_detect = comfy.text_encoders.sd3_clip.t5_xxl_detect(state_dict, "{}umt5xxl.transformer.".format(pref))
+        return supported_models_base.ClipTarget(comfy.text_encoders.wan.WanT5Tokenizer, comfy.text_encoders.wan.te(**t5_detect))
 
-# class WAN21_I2V(WAN21_T2V):
-#     unet_config = {
-#         "image_model": "wan2.1",
-#         "model_type": "i2v",
-#         "in_dim": 36,
-#     }
+class WAN21_I2V(WAN21_T2V):
+    unet_config = {
+        "image_model": "wan2.1",
+        "model_type": "i2v",
+        "in_dim": 36,
+    }
 
-#     def get_model(self, state_dict, prefix="", device=None):
-#         out = model_base.WAN21(self, image_to_video=True, device=device)
-#         return out
+    def get_model(self, state_dict, prefix="", device=None):
+        out = model_base.WAN21(self, image_to_video=True, device=device)
+        return out
 
-# class WAN21_FunControl2V(WAN21_T2V):
-#     unet_config = {
-#         "image_model": "wan2.1",
-#         "model_type": "i2v",
-#         "in_dim": 48,
-#     }
+class WAN21_FunControl2V(WAN21_T2V):
+    unet_config = {
+        "image_model": "wan2.1",
+        "model_type": "i2v",
+        "in_dim": 48,
+    }
 
-#     def get_model(self, state_dict, prefix="", device=None):
-#         out = model_base.WAN21(self, image_to_video=False, device=device)
-#         return out
+    def get_model(self, state_dict, prefix="", device=None):
+        out = model_base.WAN21(self, image_to_video=False, device=device)
+        return out
 
-# class WAN21_Camera(WAN21_T2V):
-#     unet_config = {
-#         "image_model": "wan2.1",
-#         "model_type": "camera",
-#         "in_dim": 32,
-#     }
+class WAN21_Camera(WAN21_T2V):
+    unet_config = {
+        "image_model": "wan2.1",
+        "model_type": "camera",
+        "in_dim": 32,
+    }
 
-#     def get_model(self, state_dict, prefix="", device=None):
-#         out = model_base.WAN21_Camera(self, image_to_video=False, device=device)
-#         return out
+    def get_model(self, state_dict, prefix="", device=None):
+        out = model_base.WAN21_Camera(self, image_to_video=False, device=device)
+        return out
 
-# class WAN22_Camera(WAN21_T2V):
-#     unet_config = {
-#         "image_model": "wan2.1",
-#         "model_type": "camera_2.2",
-#         "in_dim": 36,
-#     }
+class WAN22_Camera(WAN21_T2V):
+    unet_config = {
+        "image_model": "wan2.1",
+        "model_type": "camera_2.2",
+        "in_dim": 36,
+    }
 
-#     def get_model(self, state_dict, prefix="", device=None):
-#         out = model_base.WAN21_Camera(self, image_to_video=False, device=device)
-#         return out
+    def get_model(self, state_dict, prefix="", device=None):
+        out = model_base.WAN21_Camera(self, image_to_video=False, device=device)
+        return out
 
-# class WAN21_Vace(WAN21_T2V):
-#     unet_config = {
-#         "image_model": "wan2.1",
-#         "model_type": "vace",
-#     }
+class WAN21_Vace(WAN21_T2V):
+    unet_config = {
+        "image_model": "wan2.1",
+        "model_type": "vace",
+    }
 
-#     def __init__(self, unet_config):
-#         super().__init__(unet_config)
-#         self.memory_usage_factor = 1.2 * self.memory_usage_factor
+    def __init__(self, unet_config):
+        super().__init__(unet_config)
+        self.memory_usage_factor = 1.2 * self.memory_usage_factor
 
-#     def get_model(self, state_dict, prefix="", device=None):
-#         out = model_base.WAN21_Vace(self, image_to_video=False, device=device)
-#         return out
+    def get_model(self, state_dict, prefix="", device=None):
+        out = model_base.WAN21_Vace(self, image_to_video=False, device=device)
+        return out
 
-# class WAN21_HuMo(WAN21_T2V):
-#     unet_config = {
-#         "image_model": "wan2.1",
-#         "model_type": "humo",
-#     }
+class WAN21_HuMo(WAN21_T2V):
+    unet_config = {
+        "image_model": "wan2.1",
+        "model_type": "humo",
+    }
 
-#     def get_model(self, state_dict, prefix="", device=None):
-#         out = model_base.WAN21_HuMo(self, image_to_video=False, device=device)
-#         return out
+    def get_model(self, state_dict, prefix="", device=None):
+        out = model_base.WAN21_HuMo(self, image_to_video=False, device=device)
+        return out
 
-# class WAN22_S2V(WAN21_T2V):
-#     unet_config = {
-#         "image_model": "wan2.1",
-#         "model_type": "s2v",
-#     }
+class WAN22_S2V(WAN21_T2V):
+    unet_config = {
+        "image_model": "wan2.1",
+        "model_type": "s2v",
+    }
 
-#     def __init__(self, unet_config):
-#         super().__init__(unet_config)
+    def __init__(self, unet_config):
+        super().__init__(unet_config)
 
-#     def get_model(self, state_dict, prefix="", device=None):
-#         out = model_base.WAN22_S2V(self, device=device)
-#         return out
+    def get_model(self, state_dict, prefix="", device=None):
+        out = model_base.WAN22_S2V(self, device=device)
+        return out
 
-# class WAN22_Animate(WAN21_T2V):
-#     unet_config = {
-#         "image_model": "wan2.1",
-#         "model_type": "animate",
-#     }
+class WAN22_Animate(WAN21_T2V):
+    unet_config = {
+        "image_model": "wan2.1",
+        "model_type": "animate",
+    }
 
-#     def __init__(self, unet_config):
-#         super().__init__(unet_config)
+    def __init__(self, unet_config):
+        super().__init__(unet_config)
 
-#     def get_model(self, state_dict, prefix="", device=None):
-#         out = model_base.WAN22_Animate(self, device=device)
-#         return out
+    def get_model(self, state_dict, prefix="", device=None):
+        out = model_base.WAN22_Animate(self, device=device)
+        return out
 
-# class WAN22_T2V(WAN21_T2V):
-#     unet_config = {
-#         "image_model": "wan2.1",
-#         "model_type": "t2v",
-#         "out_dim": 48,
-#     }
+class WAN22_T2V(WAN21_T2V):
+    unet_config = {
+        "image_model": "wan2.1",
+        "model_type": "t2v",
+        "out_dim": 48,
+    }
 
-#     latent_format = latent_formats.Wan22
+    latent_format = latent_formats.Wan22
 
-#     def get_model(self, state_dict, prefix="", device=None):
-#         out = model_base.WAN22(self, image_to_video=True, device=device)
-#         return out
+    def get_model(self, state_dict, prefix="", device=None):
+        out = model_base.WAN22(self, image_to_video=True, device=device)
+        return out
 
 # class Hunyuan3Dv2(supported_models_base.BASE):
 #     unet_config = {
@@ -1190,7 +1190,7 @@ class HunyuanVideo(supported_models_base.BASE):
 #     unet_extra_config = {}
 #     latent_format = latent_formats.Flux
 
-#     supported_inference_dtypes = [torch.bfloat16, torch.float32]
+#     supported_inference_dtypes = [mindspore.bfloat16, mindspore.float32]
 
 #     vae_key_prefix = ["vae."]
 #     text_encoder_key_prefix = ["text_encoders."]
@@ -1218,7 +1218,7 @@ class HunyuanVideo(supported_models_base.BASE):
 
 #     memory_usage_factor = 3.2
 
-#     supported_inference_dtypes = [torch.bfloat16, torch.float16, torch.float32]
+#     supported_inference_dtypes = [mindspore.bfloat16, mindspore.float16, mindspore.float32]
 
 
 #     def get_model(self, state_dict, prefix="", device=None):
@@ -1259,7 +1259,7 @@ class HunyuanVideo(supported_models_base.BASE):
 
 #     memory_usage_factor = 0.5
 
-#     supported_inference_dtypes = [torch.bfloat16, torch.float32]
+#     supported_inference_dtypes = [mindspore.bfloat16, mindspore.float32]
 
 #     vae_key_prefix = ["vae."]
 #     text_encoder_key_prefix = ["text_encoders."]
@@ -1286,7 +1286,7 @@ class HunyuanVideo(supported_models_base.BASE):
 #     unet_extra_config = {}
 #     latent_format = latent_formats.Flux
 
-#     supported_inference_dtypes = [torch.bfloat16, torch.float32]
+#     supported_inference_dtypes = [mindspore.bfloat16, mindspore.float32]
 
 #     vae_key_prefix = ["vae."]
 #     text_encoder_key_prefix = ["text_encoders."]
@@ -1294,7 +1294,7 @@ class HunyuanVideo(supported_models_base.BASE):
 #     def __init__(self, unet_config):
 #         super().__init__(unet_config)
 #         if comfy.model_management.extended_fp16_support():
-#             self.supported_inference_dtypes = [torch.float16] + self.supported_inference_dtypes
+#             self.supported_inference_dtypes = [mindspore.float16] + self.supported_inference_dtypes
 
 #     def get_model(self, state_dict, prefix="", device=None):
 #         out = model_base.Omnigen2(self, device=device)
@@ -1348,7 +1348,7 @@ class QwenImage(supported_models_base.BASE):
 
 #     memory_usage_factor = 7.7
 
-#     supported_inference_dtypes = [torch.bfloat16, torch.float32]
+#     supported_inference_dtypes = [mindspore.bfloat16, mindspore.float32]
 
 #     def get_model(self, state_dict, prefix="", device=None):
 #         out = model_base.HunyuanImage21(self, device=device)
@@ -1380,4 +1380,4 @@ class QwenImage(supported_models_base.BASE):
 
 # models += [SVD_img2vid]
 
-models = [Flux, QwenImage]
+models = [Flux, QwenImage, WAN22_T2V, WAN21_T2V, WAN21_I2V, WAN21_FunControl2V, WAN21_Vace, WAN21_Camera, WAN22_Camera, WAN22_S2V, WAN21_HuMo, WAN22_Animate]

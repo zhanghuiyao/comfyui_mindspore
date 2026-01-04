@@ -37,7 +37,7 @@ from . import model_detection
 from . import sd1_clip
 from . import sdxl_clip
 # import comfy.text_encoders.sd2_clip
-# import comfy.text_encoders.sd3_clip
+import comfy.text_encoders.sd3_clip
 # import comfy.text_encoders.sa_t5
 # import comfy.text_encoders.aura_t5
 # import comfy.text_encoders.pixart_t5
@@ -49,7 +49,7 @@ import comfy.text_encoders.long_clipl
 # import comfy.text_encoders.hunyuan_video
 # import comfy.text_encoders.cosmos
 # import comfy.text_encoders.lumina2
-# import comfy.text_encoders.wan
+import comfy.text_encoders.wan
 # import comfy.text_encoders.hidream
 # import comfy.text_encoders.ace
 # import comfy.text_encoders.omnigen2
@@ -1047,10 +1047,9 @@ def load_text_encoder_state_dicts(state_dicts=[], embedding_directory=None, clip
                 # clip_target.tokenizer = comfy.text_encoders.pixart_t5.PixArtTokenizer
                 raise NotImplementedError
             elif clip_type == CLIPType.WAN:
-                # clip_target.clip = comfy.text_encoders.wan.te(**t5xxl_detect(clip_data))
-                # clip_target.tokenizer = comfy.text_encoders.wan.WanT5Tokenizer
-                # tokenizer_data["spiece_model"] = clip_data[0].get("spiece_model", None)
-                raise NotImplementedError
+                clip_target.clip = comfy.text_encoders.wan.te(**t5xxl_detect(clip_data))
+                clip_target.tokenizer = comfy.text_encoders.wan.WanT5Tokenizer
+                tokenizer_data["spiece_model"] = clip_data[0].get("spiece_model", None)
             elif clip_type == CLIPType.HIDREAM:
                 # clip_target.clip = comfy.text_encoders.hidream.hidream_clip(**t5xxl_detect(clip_data),
                 #                                                         clip_l=False, clip_g=False, t5=True, llama=False, dtype_llama=None, llama_scaled_fp8=None)

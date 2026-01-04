@@ -13,7 +13,8 @@ import os
 import re
 from io import BytesIO
 from inspect import cleandoc
-import torch
+import mindspore as ms
+from mindspore import mint
 import comfy.utils
 
 from comfy.comfy_types import FileLocator, IO
@@ -91,8 +92,8 @@ class ImageAddNoise:
     CATEGORY = "image"
 
     def repeat(self, image, seed, strength):
-        generator = torch.manual_seed(seed)
-        s = torch.clip((image + strength * torch.randn(image.size(), generator=generator, device="cpu").to(image)), min=0.0, max=1.0)
+        generator = ms.manual_seed(seed)
+        s = mint.clip((image + strength * mint.randn(image.shape, generator=generator).to(image)), min=0.0, max=1.0)
         return (s,)
 
 class SaveAnimatedWEBP:
@@ -130,7 +131,7 @@ class SaveAnimatedWEBP:
         results: list[FileLocator] = []
         pil_images = []
         for image in images:
-            i = 255. * image.cpu().numpy()
+            i = 255. * image.numpy()
             img = Image.fromarray(np.clip(i, 0, 255).astype(np.uint8))
             pil_images.append(img)
 
@@ -191,7 +192,7 @@ class SaveAnimatedPNG:
         results = list()
         pil_images = []
         for image in images:
-            i = 255. * image.cpu().numpy()
+            i = 255. * image.numpy()
             img = Image.fromarray(np.clip(i, 0, 255).astype(np.uint8))
             pil_images.append(img)
 
@@ -281,11 +282,11 @@ Optional spacing can be added between images.
         if image1.shape[0] != image2.shape[0]:
             max_batch = max(image1.shape[0], image2.shape[0])
             if image1.shape[0] < max_batch:
-                image1 = torch.cat(
+                image1 = mint.cat(
                     [image1, image1[-1:].repeat(max_batch - image1.shape[0], 1, 1, 1)]
                 )
             if image2.shape[0] < max_batch:
-                image2 = torch.cat(
+                image2 = mint.cat(
                     [image2, image2[-1:].repeat(max_batch - image2.shape[0], 1, 1, 1)]
                 )
 
@@ -329,11 +330,11 @@ Optional spacing can be added between images.
                     if h1 < target_h:
                         pad_h = target_h - h1
                         pad_top, pad_bottom = pad_h // 2, pad_h - pad_h // 2
-                        image1 = torch.nn.functional.pad(image1, (0, 0, 0, 0, pad_top, pad_bottom), mode='constant', value=pad_value)
+                        image1 = mint.functional.pad(image1, (0, 0, 0, 0, pad_top, pad_bottom), mode='constant', value=pad_value)
                     if h2 < target_h:
                         pad_h = target_h - h2
                         pad_top, pad_bottom = pad_h // 2, pad_h - pad_h // 2
-                        image2 = torch.nn.functional.pad(image2, (0, 0, 0, 0, pad_top, pad_bottom), mode='constant', value=pad_value)
+                        image2 = mint.functional.pad(image2, (0, 0, 0, 0, pad_top, pad_bottom), mode='constant', value=pad_value)
             else:  # up, down
                 # For vertical concat, pad widths to match
                 if w1 != w2:
@@ -341,35 +342,33 @@ Optional spacing can be added between images.
                     if w1 < target_w:
                         pad_w = target_w - w1
                         pad_left, pad_right = pad_w // 2, pad_w - pad_w // 2
-                        image1 = torch.nn.functional.pad(image1, (0, 0, pad_left, pad_right), mode='constant', value=pad_value)
+                        image1 = mint.functional.pad(image1, (0, 0, pad_left, pad_right), mode='constant', value=pad_value)
                     if w2 < target_w:
                         pad_w = target_w - w2
                         pad_left, pad_right = pad_w // 2, pad_w - pad_w // 2
-                        image2 = torch.nn.functional.pad(image2, (0, 0, pad_left, pad_right), mode='constant', value=pad_value)
+                        image2 = mint.functional.pad(image2, (0, 0, pad_left, pad_right), mode='constant', value=pad_value)
 
         # Ensure same number of channels
         if image1.shape[-1] != image2.shape[-1]:
             max_channels = max(image1.shape[-1], image2.shape[-1])
             if image1.shape[-1] < max_channels:
-                image1 = torch.cat(
+                image1 = mint.cat(
                     [
                         image1,
-                        torch.ones(
+                        mint.ones(
                             *image1.shape[:-1],
                             max_channels - image1.shape[-1],
-                            device=image1.device,
                         ),
                     ],
                     dim=-1,
                 )
             if image2.shape[-1] < max_channels:
-                image2 = torch.cat(
+                image2 = mint.cat(
                     [
                         image2,
-                        torch.ones(
+                        mint.ones(
                             *image2.shape[:-1],
                             max_channels - image2.shape[-1],
-                            device=image2.device,
                         ),
                     ],
                     dim=-1,
@@ -394,7 +393,7 @@ Optional spacing can be added between images.
                     image1.shape[-1],
                 )
 
-            spacing = torch.full(spacing_shape, 0.0, device=image1.device)
+            spacing = mint.full(spacing_shape, 0.0)
             if isinstance(color_val, tuple):
                 for i, c in enumerate(color_val):
                     if i < spacing.shape[-1]:
@@ -412,7 +411,7 @@ Optional spacing can be added between images.
             images.insert(1, spacing)
 
         concat_dim = 2 if direction in ["left", "right"] else 1
-        return (torch.cat(images, dim=concat_dim),)
+        return (mint.cat(images, dim=concat_dim),)
 
 class ResizeAndPadImage:
     @classmethod
@@ -456,11 +455,10 @@ class ResizeAndPadImage:
         resized = comfy.utils.common_upscale(image_permuted, new_width, new_height, interpolation, "disabled")
 
         pad_value = 0.0 if padding_color == "black" else 1.0
-        padded = torch.full(
+        padded = mint.full(
             (batch_size, channels, target_height, target_width),
             pad_value,
             dtype=image.dtype,
-            device=image.device
         )
 
         y_offset = (target_height - new_height) // 2
@@ -603,7 +601,7 @@ class ImageRotate:
         elif rotation.startswith("270"):
             rotate_by = 3
 
-        image = torch.rot90(image, k=rotate_by, dims=[2, 1])
+        image = ms.ops.rot90(image, k=rotate_by, dims=[2, 1])
         return (image,)
 
 class ImageFlip:
@@ -619,9 +617,9 @@ class ImageFlip:
 
     def flip(self, image, flip_method):
         if flip_method.startswith("x"):
-            image = torch.flip(image, dims=[1])
+            image = mint.flip(image, dims=[1])
         elif flip_method.startswith("y"):
-            image = torch.flip(image, dims=[2])
+            image = mint.flip(image, dims=[2])
 
         return (image,)
 

@@ -115,7 +115,7 @@ class T5Attention(mindspore.nn.Cell):
         relative_buckets = 0
         if bidirectional:
             num_buckets //= 2
-            relative_buckets += (relative_position > 0).to(mindspore.long) * num_buckets
+            relative_buckets += (relative_position > 0).to(mindspore.int64) * num_buckets
             relative_position = mint.abs(relative_position)
         else:
             relative_position = -mint.min(relative_position, mint.zeros_like(relative_position))
@@ -130,7 +130,7 @@ class T5Attention(mindspore.nn.Cell):
             mint.log(relative_position.float() / max_exact)
             / math.log(max_distance / max_exact)
             * (num_buckets - max_exact)
-        ).to(mindspore.long)
+        ).to(mindspore.int64)
         relative_position_if_large = mint.min(
             relative_position_if_large, mint.full_like(relative_position_if_large, num_buckets - 1)
         )
@@ -140,8 +140,8 @@ class T5Attention(mindspore.nn.Cell):
 
     def compute_bias(self, query_length, key_length, dtype):
         """Compute binned relative position bias"""
-        context_position = mint.arange(query_length, dtype=mindspore.long)[:, None]
-        memory_position = mint.arange(key_length, dtype=mindspore.long)[None, :]
+        context_position = mint.arange(query_length, dtype=mindspore.int64)[:, None]
+        memory_position = mint.arange(key_length, dtype=mindspore.int64)[None, :]
         relative_position = memory_position - context_position  # shape (query_length, key_length)
         relative_position_bucket = self._relative_position_bucket(
             relative_position,  # shape (query_length, key_length)

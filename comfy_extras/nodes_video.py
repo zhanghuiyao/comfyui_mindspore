@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import os
 import av
-import torch
+import mindspore as ms
+from mindspore import mint
 import folder_paths
 import json
 from typing import Optional
@@ -60,7 +61,7 @@ class SaveWEBM(io.ComfyNode):
             stream.options["preset"] = "6"
 
         for frame in images:
-            frame = av.VideoFrame.from_ndarray(torch.clamp(frame[..., :3] * 255, min=0, max=255).to(device=torch.device("cpu"), dtype=torch.uint8).numpy(), format="rgb24")
+            frame = av.VideoFrame.from_ndarray(mint.clamp(frame[..., :3] * 255, min=0, max=255).to(dtype=ms.uint8).numpy(), format="rgb24")
             for packet in stream.encode(frame):
                 container.mux(packet)
         container.mux(stream.encode())

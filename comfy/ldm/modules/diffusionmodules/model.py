@@ -284,12 +284,20 @@ def mindspore_attention(q, k, v):
         (q, k, v),
     )
 
-    try:
-        out = comfy.ops.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=0.0, is_causal=False)
+    # NOTE mindspore FlashAttentionScore head dim must <= 768, use the eager implement
+    if q.shape[-1] // q.shape[1] < 768:
+        from mindone.transformers.mindspore_adapter.attention import scaled_dot_product_attention
+        out = scaled_dot_product_attention(q, k, v)
         out = out.transpose(2, 3).reshape(orig_shape)
-    except model_management.OOM_EXCEPTION:
-        logging.warning("scaled_dot_product_attention OOMed: switched to slice attention")
-        out = slice_attention(q.view(B, -1, C), k.view(B, -1, C).transpose(1, 2), v.view(B, -1, C).transpose(1, 2)).reshape(orig_shape)
+
+    else:
+        try:
+            out = comfy.ops.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=0.0, is_causal=False)
+            out = out.transpose(2, 3).reshape(orig_shape)
+        except model_management.OOM_EXCEPTION:
+            logging.warning("scaled_dot_product_attention OOMed: switched to slice attention")
+            out = slice_attention(q.view(B, -1, C), k.view(B, -1, C).transpose(1, 2), v.view(B, -1, C).transpose(1, 2)).reshape(orig_shape)
+    
     return out
 
 

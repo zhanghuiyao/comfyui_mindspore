@@ -1,6 +1,6 @@
 from __future__ import annotations
 from .k_diffusion import sampling as k_diffusion_sampling
-# from .extra_samplers import uni_pc
+from .extra_samplers import uni_pc
 from typing import TYPE_CHECKING, Callable, NamedTuple
 if TYPE_CHECKING:
     from comfy.model_patcher import ModelPatcher
@@ -1086,8 +1086,7 @@ def calculate_sigmas(model_sampling: object, scheduler_name: str, steps: int) ->
 
 def sampler_object(name):
     if name == "uni_pc":
-        # sampler = KSAMPLER(uni_pc.sample_unipc)
-        raise NotImplementedError
+        sampler = KSAMPLER(uni_pc.sample_unipc)
     elif name == "uni_pc_bh2":
         # sampler = KSAMPLER(uni_pc.sample_unipc_bh2)
         raise NotImplementedError

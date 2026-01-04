@@ -37,8 +37,8 @@ import comfy.ldm.flux.model
 # import comfy.ldm.cosmos.model
 # import comfy.ldm.cosmos.predict2
 # import comfy.ldm.lumina.model
-# import comfy.ldm.wan.model
-# import comfy.ldm.wan.model_animate
+import comfy.ldm.wan.model
+import comfy.ldm.wan.model_animate
 # import comfy.ldm.hunyuan3d.model
 # import comfy.ldm.hidream.model
 # import comfy.ldm.chroma.model
@@ -1113,238 +1113,238 @@ class Flux(BaseModel):
 #             out['c_crossattn'] = comfy.conds.CONDRegular(cross_attn)
 #         return out
 
-# class WAN21(BaseModel):
-#     def __init__(self, model_config, model_type=ModelType.FLOW, image_to_video=False, device=None):
-#         super().__init__(model_config, model_type, device=device, unet_model=comfy.ldm.wan.model.WanModel)
-#         self.image_to_video = image_to_video
+class WAN21(BaseModel):
+    def __init__(self, model_config, model_type=ModelType.FLOW, image_to_video=False, device=None):
+        super().__init__(model_config, model_type, device=device, unet_model=comfy.ldm.wan.model.WanModel)
+        self.image_to_video = image_to_video
 
-#     def concat_cond(self, **kwargs):
-#         noise = kwargs.get("noise", None)
-#         extra_channels = self.diffusion_model.patch_embedding.weight.shape[1] - noise.shape[1]
-#         if extra_channels == 0:
-#             return None
+    def concat_cond(self, **kwargs):
+        noise = kwargs.get("noise", None)
+        extra_channels = self.diffusion_model.patch_embedding.weight.shape[1] - noise.shape[1]
+        if extra_channels == 0:
+            return None
 
-#         image = kwargs.get("concat_latent_image", None)
-#         device = kwargs["device"]
+        image = kwargs.get("concat_latent_image", None)
+        device = kwargs["device"]
 
-#         if image is None:
-#             shape_image = list(noise.shape)
-#             shape_image[1] = extra_channels
-#             image = mint.zeros(shape_image, dtype=noise.dtype)
-#         else:
-#             latent_dim = self.latent_format.latent_channels
-#             image = utils.common_upscale(image.to(device), noise.shape[-1], noise.shape[-2], "bilinear", "center")
-#             for i in range(0, image.shape[1], latent_dim):
-#                 image[:, i: i + latent_dim] = self.process_latent_in(image[:, i: i + latent_dim])
-#             image = utils.resize_to_batch_size(image, noise.shape[0])
+        if image is None:
+            shape_image = list(noise.shape)
+            shape_image[1] = extra_channels
+            image = mint.zeros(shape_image, dtype=noise.dtype)
+        else:
+            latent_dim = self.latent_format.latent_channels
+            image = utils.common_upscale(image, noise.shape[-1], noise.shape[-2], "bilinear", "center")
+            for i in range(0, image.shape[1], latent_dim):
+                image[:, i: i + latent_dim] = self.process_latent_in(image[:, i: i + latent_dim])
+            image = utils.resize_to_batch_size(image, noise.shape[0])
 
-#         if extra_channels != image.shape[1] + 4:
-#             if not self.image_to_video or extra_channels == image.shape[1]:
-#                 return image
+        if extra_channels != image.shape[1] + 4:
+            if not self.image_to_video or extra_channels == image.shape[1]:
+                return image
 
-#         if image.shape[1] > (extra_channels - 4):
-#             image = image[:, :(extra_channels - 4)]
+        if image.shape[1] > (extra_channels - 4):
+            image = image[:, :(extra_channels - 4)]
 
-#         mask = kwargs.get("concat_mask", kwargs.get("denoise_mask", None))
-#         if mask is None:
-#             mask = mint.zeros_like(noise)[:, :4]
-#         else:
-#             if mask.shape[1] != 4:
-#                 mask = mint.mean(mask, dim=1, keepdim=True)
-#             mask = 1.0 - mask
-#             mask = utils.common_upscale(mask.to(device), noise.shape[-1], noise.shape[-2], "bilinear", "center")
-#             if mask.shape[-3] < noise.shape[-3]:
-#                 mask = mint.functional.pad(mask, (0, 0, 0, 0, 0, noise.shape[-3] - mask.shape[-3]), mode='constant', value=0)
-#             if mask.shape[1] == 1:
-#                 mask = mask.repeat(1, 4, 1, 1, 1)
-#             mask = utils.resize_to_batch_size(mask, noise.shape[0])
+        mask = kwargs.get("concat_mask", kwargs.get("denoise_mask", None))
+        if mask is None:
+            mask = mint.zeros_like(noise)[:, :4]
+        else:
+            if mask.shape[1] != 4:
+                mask = mint.mean(mask, dim=1, keepdim=True)
+            mask = 1.0 - mask
+            mask = utils.common_upscale(mask, noise.shape[-1], noise.shape[-2], "bilinear", "center")
+            if mask.shape[-3] < noise.shape[-3]:
+                mask = mint.functional.pad(mask, (0, 0, 0, 0, 0, noise.shape[-3] - mask.shape[-3]), mode='constant', value=0)
+            if mask.shape[1] == 1:
+                mask = mask.repeat(1, 4, 1, 1, 1)
+            mask = utils.resize_to_batch_size(mask, noise.shape[0])
 
-#         concat_mask_index = kwargs.get("concat_mask_index", 0)
-#         if concat_mask_index != 0:
-#             return mint.cat((image[:, :concat_mask_index], mask, image[:, concat_mask_index:]), dim=1)
-#         else:
-#             return mint.cat((mask, image), dim=1)
+        concat_mask_index = kwargs.get("concat_mask_index", 0)
+        if concat_mask_index != 0:
+            return mint.cat((image[:, :concat_mask_index], mask, image[:, concat_mask_index:]), dim=1)
+        else:
+            return mint.cat((mask, image), dim=1)
 
-#     def extra_conds(self, **kwargs):
-#         out = super().extra_conds(**kwargs)
-#         cross_attn = kwargs.get("cross_attn", None)
-#         if cross_attn is not None:
-#             out['c_crossattn'] = comfy.conds.CONDRegular(cross_attn)
+    def extra_conds(self, **kwargs):
+        out = super().extra_conds(**kwargs)
+        cross_attn = kwargs.get("cross_attn", None)
+        if cross_attn is not None:
+            out['c_crossattn'] = comfy.conds.CONDRegular(cross_attn)
 
-#         clip_vision_output = kwargs.get("clip_vision_output", None)
-#         if clip_vision_output is not None:
-#             out['clip_fea'] = comfy.conds.CONDRegular(clip_vision_output.penultimate_hidden_states)
+        clip_vision_output = kwargs.get("clip_vision_output", None)
+        if clip_vision_output is not None:
+            out['clip_fea'] = comfy.conds.CONDRegular(clip_vision_output.penultimate_hidden_states)
 
-#         time_dim_concat = kwargs.get("time_dim_concat", None)
-#         if time_dim_concat is not None:
-#             out['time_dim_concat'] = comfy.conds.CONDRegular(self.process_latent_in(time_dim_concat))
+        time_dim_concat = kwargs.get("time_dim_concat", None)
+        if time_dim_concat is not None:
+            out['time_dim_concat'] = comfy.conds.CONDRegular(self.process_latent_in(time_dim_concat))
 
-#         reference_latents = kwargs.get("reference_latents", None)
-#         if reference_latents is not None:
-#             out['reference_latent'] = comfy.conds.CONDRegular(self.process_latent_in(reference_latents[-1])[:, :, 0])
+        reference_latents = kwargs.get("reference_latents", None)
+        if reference_latents is not None:
+            out['reference_latent'] = comfy.conds.CONDRegular(self.process_latent_in(reference_latents[-1])[:, :, 0])
 
-#         return out
+        return out
 
 
-# class WAN21_Vace(WAN21):
-#     def __init__(self, model_config, model_type=ModelType.FLOW, image_to_video=False, device=None):
-#         super(WAN21, self).__init__(model_config, model_type, device=device, unet_model=comfy.ldm.wan.model.VaceWanModel)
-#         self.image_to_video = image_to_video
+class WAN21_Vace(WAN21):
+    def __init__(self, model_config, model_type=ModelType.FLOW, image_to_video=False, device=None):
+        super(WAN21, self).__init__(model_config, model_type, device=device, unet_model=comfy.ldm.wan.model.VaceWanModel)
+        self.image_to_video = image_to_video
 
-#     def extra_conds(self, **kwargs):
-#         out = super().extra_conds(**kwargs)
-#         noise = kwargs.get("noise", None)
-#         noise_shape = list(noise.shape)
-#         vace_frames = kwargs.get("vace_frames", None)
-#         if vace_frames is None:
-#             noise_shape[1] = 32
-#             vace_frames = [mint.zeros(noise_shape, device=noise.device, dtype=noise.dtype)]
+    def extra_conds(self, **kwargs):
+        out = super().extra_conds(**kwargs)
+        noise = kwargs.get("noise", None)
+        noise_shape = list(noise.shape)
+        vace_frames = kwargs.get("vace_frames", None)
+        if vace_frames is None:
+            noise_shape[1] = 32
+            vace_frames = [mint.zeros(noise_shape, dtype=noise.dtype)]
 
-#         mask = kwargs.get("vace_mask", None)
-#         if mask is None:
-#             noise_shape[1] = 64
-#             mask = [mint.ones(noise_shape, device=noise.device, dtype=noise.dtype)] * len(vace_frames)
+        mask = kwargs.get("vace_mask", None)
+        if mask is None:
+            noise_shape[1] = 64
+            mask = [mint.ones(noise_shape, dtype=noise.dtype)] * len(vace_frames)
 
-#         vace_frames_out = []
-#         for j in range(len(vace_frames)):
-#             vf = vace_frames[j].to(device=noise.device, dtype=noise.dtype, copy=True)
-#             for i in range(0, vf.shape[1], 16):
-#                 vf[:, i:i + 16] = self.process_latent_in(vf[:, i:i + 16])
-#             vf = mint.cat([vf, mask[j].to(device=noise.device, dtype=noise.dtype)], dim=1)
-#             vace_frames_out.append(vf)
+        vace_frames_out = []
+        for j in range(len(vace_frames)):
+            vf = vace_frames[j].to(dtype=noise.dtype, copy=True)
+            for i in range(0, vf.shape[1], 16):
+                vf[:, i:i + 16] = self.process_latent_in(vf[:, i:i + 16])
+            vf = mint.cat([vf, mask[j].to(dtype=noise.dtype)], dim=1)
+            vace_frames_out.append(vf)
 
-#         vace_frames = mint.stack(vace_frames_out, dim=1)
-#         out['vace_context'] = comfy.conds.CONDRegular(vace_frames)
+        vace_frames = mint.stack(vace_frames_out, dim=1)
+        out['vace_context'] = comfy.conds.CONDRegular(vace_frames)
 
-#         vace_strength = kwargs.get("vace_strength", [1.0] * len(vace_frames_out))
-#         out['vace_strength'] = comfy.conds.CONDConstant(vace_strength)
-#         return out
+        vace_strength = kwargs.get("vace_strength", [1.0] * len(vace_frames_out))
+        out['vace_strength'] = comfy.conds.CONDConstant(vace_strength)
+        return out
 
-# class WAN21_Camera(WAN21):
-#     def __init__(self, model_config, model_type=ModelType.FLOW, image_to_video=False, device=None):
-#         super(WAN21, self).__init__(model_config, model_type, device=device, unet_model=comfy.ldm.wan.model.CameraWanModel)
-#         self.image_to_video = image_to_video
+class WAN21_Camera(WAN21):
+    def __init__(self, model_config, model_type=ModelType.FLOW, image_to_video=False, device=None):
+        super(WAN21, self).__init__(model_config, model_type, device=device, unet_model=comfy.ldm.wan.model.CameraWanModel)
+        self.image_to_video = image_to_video
 
-#     def extra_conds(self, **kwargs):
-#         out = super().extra_conds(**kwargs)
-#         camera_conditions = kwargs.get("camera_conditions", None)
-#         if camera_conditions is not None:
-#             out['camera_conditions'] = comfy.conds.CONDRegular(camera_conditions)
-#         return out
+    def extra_conds(self, **kwargs):
+        out = super().extra_conds(**kwargs)
+        camera_conditions = kwargs.get("camera_conditions", None)
+        if camera_conditions is not None:
+            out['camera_conditions'] = comfy.conds.CONDRegular(camera_conditions)
+        return out
 
-# class WAN21_HuMo(WAN21):
-#     def __init__(self, model_config, model_type=ModelType.FLOW, image_to_video=False, device=None):
-#         super(WAN21, self).__init__(model_config, model_type, device=device, unet_model=comfy.ldm.wan.model.HumoWanModel)
-#         self.image_to_video = image_to_video
+class WAN21_HuMo(WAN21):
+    def __init__(self, model_config, model_type=ModelType.FLOW, image_to_video=False, device=None):
+        super(WAN21, self).__init__(model_config, model_type, device=device, unet_model=comfy.ldm.wan.model.HumoWanModel)
+        self.image_to_video = image_to_video
 
-#     def extra_conds(self, **kwargs):
-#         out = super().extra_conds(**kwargs)
-#         noise = kwargs.get("noise", None)
+    def extra_conds(self, **kwargs):
+        out = super().extra_conds(**kwargs)
+        noise = kwargs.get("noise", None)
 
-#         audio_embed = kwargs.get("audio_embed", None)
-#         if audio_embed is not None:
-#             out['audio_embed'] = comfy.conds.CONDRegular(audio_embed)
+        audio_embed = kwargs.get("audio_embed", None)
+        if audio_embed is not None:
+            out['audio_embed'] = comfy.conds.CONDRegular(audio_embed)
 
-#         if "c_concat" not in out:  # 1.7B model
-#             reference_latents = kwargs.get("reference_latents", None)
-#             if reference_latents is not None:
-#                 out['reference_latent'] = comfy.conds.CONDRegular(self.process_latent_in(reference_latents[-1]))
-#         else:
-#             noise_shape = list(noise.shape)
-#             noise_shape[1] += 4
-#             concat_latent = mint.zeros(noise_shape, device=noise.device, dtype=noise.dtype)
-#             zero_vae_values_first = mindspore.tensor([0.8660, -0.4326, -0.0017, -0.4884, -0.5283, 0.9207, -0.9896, 0.4433, -0.5543, -0.0113, 0.5753, -0.6000, -0.8346, -0.3497, -0.1926, -0.6938]).view(1, 16, 1, 1, 1)
-#             zero_vae_values_second = mindspore.tensor([1.0869, -1.2370, 0.0206, -0.4357, -0.6411, 2.0307, -1.5972, 1.2659, -0.8595, -0.4654, 0.9638, -1.6330, -1.4310, -0.1098, -0.3856, -1.4583]).view(1, 16, 1, 1, 1)
-#             zero_vae_values = mindspore.tensor([0.8642, -1.8583, 0.1577, 0.1350, -0.3641, 2.5863, -1.9670, 1.6065, -1.0475, -0.8678, 1.1734, -1.8138, -1.5933, -0.7721, -0.3289, -1.3745]).view(1, 16, 1, 1, 1)
-#             concat_latent[:, 4:] = zero_vae_values
-#             concat_latent[:, 4:, :1] = zero_vae_values_first
-#             concat_latent[:, 4:, 1:2] = zero_vae_values_second
-#             out['c_concat'] = comfy.conds.CONDNoiseShape(concat_latent)
-#             reference_latents = kwargs.get("reference_latents", None)
-#             if reference_latents is not None:
-#                 ref_latent = self.process_latent_in(reference_latents[-1])
-#                 ref_latent_shape = list(ref_latent.shape)
-#                 ref_latent_shape[1] += 4 + ref_latent_shape[1]
-#                 ref_latent_full = mint.zeros(ref_latent_shape, device=ref_latent.device, dtype=ref_latent.dtype)
-#                 ref_latent_full[:, 20:] = ref_latent
-#                 ref_latent_full[:, 16:20] = 1.0
-#                 out['reference_latent'] = comfy.conds.CONDRegular(ref_latent_full)
+        if "c_concat" not in out:  # 1.7B model
+            reference_latents = kwargs.get("reference_latents", None)
+            if reference_latents is not None:
+                out['reference_latent'] = comfy.conds.CONDRegular(self.process_latent_in(reference_latents[-1]))
+        else:
+            noise_shape = list(noise.shape)
+            noise_shape[1] += 4
+            concat_latent = mint.zeros(noise_shape, dtype=noise.dtype)
+            zero_vae_values_first = mindspore.tensor([0.8660, -0.4326, -0.0017, -0.4884, -0.5283, 0.9207, -0.9896, 0.4433, -0.5543, -0.0113, 0.5753, -0.6000, -0.8346, -0.3497, -0.1926, -0.6938]).view(1, 16, 1, 1, 1)
+            zero_vae_values_second = mindspore.tensor([1.0869, -1.2370, 0.0206, -0.4357, -0.6411, 2.0307, -1.5972, 1.2659, -0.8595, -0.4654, 0.9638, -1.6330, -1.4310, -0.1098, -0.3856, -1.4583]).view(1, 16, 1, 1, 1)
+            zero_vae_values = mindspore.tensor([0.8642, -1.8583, 0.1577, 0.1350, -0.3641, 2.5863, -1.9670, 1.6065, -1.0475, -0.8678, 1.1734, -1.8138, -1.5933, -0.7721, -0.3289, -1.3745]).view(1, 16, 1, 1, 1)
+            concat_latent[:, 4:] = zero_vae_values
+            concat_latent[:, 4:, :1] = zero_vae_values_first
+            concat_latent[:, 4:, 1:2] = zero_vae_values_second
+            out['c_concat'] = comfy.conds.CONDNoiseShape(concat_latent)
+            reference_latents = kwargs.get("reference_latents", None)
+            if reference_latents is not None:
+                ref_latent = self.process_latent_in(reference_latents[-1])
+                ref_latent_shape = list(ref_latent.shape)
+                ref_latent_shape[1] += 4 + ref_latent_shape[1]
+                ref_latent_full = mint.zeros(ref_latent_shape, dtype=ref_latent.dtype)
+                ref_latent_full[:, 20:] = ref_latent
+                ref_latent_full[:, 16:20] = 1.0
+                out['reference_latent'] = comfy.conds.CONDRegular(ref_latent_full)
 
-#         return out
+        return out
 
-# class WAN22_Animate(WAN21):
-#     def __init__(self, model_config, model_type=ModelType.FLOW, image_to_video=False, device=None):
-#         super(WAN21, self).__init__(model_config, model_type, device=device, unet_model=comfy.ldm.wan.model_animate.AnimateWanModel)
-#         self.image_to_video = image_to_video
+class WAN22_Animate(WAN21):
+    def __init__(self, model_config, model_type=ModelType.FLOW, image_to_video=False, device=None):
+        super(WAN21, self).__init__(model_config, model_type, device=device, unet_model=comfy.ldm.wan.model_animate.AnimateWanModel)
+        self.image_to_video = image_to_video
 
-#     def extra_conds(self, **kwargs):
-#         out = super().extra_conds(**kwargs)
+    def extra_conds(self, **kwargs):
+        out = super().extra_conds(**kwargs)
 
-#         face_video_pixels = kwargs.get("face_video_pixels", None)
-#         if face_video_pixels is not None:
-#             out['face_pixel_values'] = comfy.conds.CONDRegular(face_video_pixels)
+        face_video_pixels = kwargs.get("face_video_pixels", None)
+        if face_video_pixels is not None:
+            out['face_pixel_values'] = comfy.conds.CONDRegular(face_video_pixels)
 
-#         pose_latents = kwargs.get("pose_video_latent", None)
-#         if pose_latents is not None:
-#             out['pose_latents'] = comfy.conds.CONDRegular(self.process_latent_in(pose_latents))
-#         return out
+        pose_latents = kwargs.get("pose_video_latent", None)
+        if pose_latents is not None:
+            out['pose_latents'] = comfy.conds.CONDRegular(self.process_latent_in(pose_latents))
+        return out
 
-# class WAN22_S2V(WAN21):
-#     def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
-#         super(WAN21, self).__init__(model_config, model_type, device=device, unet_model=comfy.ldm.wan.model.WanModel_S2V)
-#         self.memory_usage_factor_conds = ("reference_latent", "reference_motion")
-#         self.memory_usage_shape_process = {"reference_motion": lambda shape: [shape[0], shape[1], 1.5, shape[-2], shape[-1]]}
+class WAN22_S2V(WAN21):
+    def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
+        super(WAN21, self).__init__(model_config, model_type, device=device, unet_model=comfy.ldm.wan.model.WanModel_S2V)
+        self.memory_usage_factor_conds = ("reference_latent", "reference_motion")
+        self.memory_usage_shape_process = {"reference_motion": lambda shape: [shape[0], shape[1], 1.5, shape[-2], shape[-1]]}
 
-#     def extra_conds(self, **kwargs):
-#         out = super().extra_conds(**kwargs)
-#         audio_embed = kwargs.get("audio_embed", None)
-#         if audio_embed is not None:
-#             out['audio_embed'] = comfy.conds.CONDRegular(audio_embed)
+    def extra_conds(self, **kwargs):
+        out = super().extra_conds(**kwargs)
+        audio_embed = kwargs.get("audio_embed", None)
+        if audio_embed is not None:
+            out['audio_embed'] = comfy.conds.CONDRegular(audio_embed)
 
-#         reference_latents = kwargs.get("reference_latents", None)
-#         if reference_latents is not None:
-#             out['reference_latent'] = comfy.conds.CONDRegular(self.process_latent_in(reference_latents[-1]))
+        reference_latents = kwargs.get("reference_latents", None)
+        if reference_latents is not None:
+            out['reference_latent'] = comfy.conds.CONDRegular(self.process_latent_in(reference_latents[-1]))
 
-#         reference_motion = kwargs.get("reference_motion", None)
-#         if reference_motion is not None:
-#             out['reference_motion'] = comfy.conds.CONDRegular(self.process_latent_in(reference_motion))
+        reference_motion = kwargs.get("reference_motion", None)
+        if reference_motion is not None:
+            out['reference_motion'] = comfy.conds.CONDRegular(self.process_latent_in(reference_motion))
 
-#         control_video = kwargs.get("control_video", None)
-#         if control_video is not None:
-#             out['control_video'] = comfy.conds.CONDRegular(self.process_latent_in(control_video))
-#         return out
+        control_video = kwargs.get("control_video", None)
+        if control_video is not None:
+            out['control_video'] = comfy.conds.CONDRegular(self.process_latent_in(control_video))
+        return out
 
-#     def extra_conds_shapes(self, **kwargs):
-#         out = {}
-#         ref_latents = kwargs.get("reference_latents", None)
-#         if ref_latents is not None:
-#             out['reference_latent'] = list([1, 16, sum(map(lambda a: math.prod(a.shape), ref_latents)) // 16])
+    def extra_conds_shapes(self, **kwargs):
+        out = {}
+        ref_latents = kwargs.get("reference_latents", None)
+        if ref_latents is not None:
+            out['reference_latent'] = list([1, 16, sum(map(lambda a: math.prod(a.shape), ref_latents)) // 16])
 
-#         reference_motion = kwargs.get("reference_motion", None)
-#         if reference_motion is not None:
-#             out['reference_motion'] = reference_motion.shape
-#         return out
+        reference_motion = kwargs.get("reference_motion", None)
+        if reference_motion is not None:
+            out['reference_motion'] = reference_motion.shape
+        return out
 
-# class WAN22(WAN21):
-#     def __init__(self, model_config, model_type=ModelType.FLOW, image_to_video=False, device=None):
-#         super(WAN21, self).__init__(model_config, model_type, device=device, unet_model=comfy.ldm.wan.model.WanModel)
-#         self.image_to_video = image_to_video
+class WAN22(WAN21):
+    def __init__(self, model_config, model_type=ModelType.FLOW, image_to_video=False, device=None):
+        super(WAN21, self).__init__(model_config, model_type, device=device, unet_model=comfy.ldm.wan.model.WanModel)
+        self.image_to_video = image_to_video
 
-#     def extra_conds(self, **kwargs):
-#         out = super().extra_conds(**kwargs)
-#         denoise_mask = kwargs.get("denoise_mask", None)
-#         if denoise_mask is not None:
-#             out["denoise_mask"] = comfy.conds.CONDRegular(denoise_mask)
-#         return out
+    def extra_conds(self, **kwargs):
+        out = super().extra_conds(**kwargs)
+        denoise_mask = kwargs.get("denoise_mask", None)
+        if denoise_mask is not None:
+            out["denoise_mask"] = comfy.conds.CONDRegular(denoise_mask)
+        return out
 
-#     def process_timestep(self, timestep, x, denoise_mask=None, **kwargs):
-#         if denoise_mask is None:
-#             return timestep
-#         temp_ts = (mint.mean(denoise_mask[:, :, :, :, :], dim=(1, 3, 4), keepdim=True) * timestep.view([timestep.shape[0]] + [1] * (denoise_mask.ndim - 1))).reshape(timestep.shape[0], -1)
-#         return temp_ts
+    def process_timestep(self, timestep, x, denoise_mask=None, **kwargs):
+        if denoise_mask is None:
+            return timestep
+        temp_ts = (mint.mean(denoise_mask[:, :, :, :, :], dim=(1, 3, 4), keepdim=True) * timestep.view([timestep.shape[0]] + [1] * (denoise_mask.ndim - 1))).reshape(timestep.shape[0], -1)
+        return temp_ts
 
-#     def scale_latent_inpaint(self, sigma, noise, latent_image, **kwargs):
-#         return latent_image
+    def scale_latent_inpaint(self, sigma, noise, latent_image, **kwargs):
+        return latent_image
 
 # class Hunyuan3Dv2(BaseModel):
 #     def __init__(self, model_config, model_type=ModelType.FLOW, device=None):

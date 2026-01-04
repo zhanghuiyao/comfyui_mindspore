@@ -1,181 +1,183 @@
 #code taken from: https://github.com/wl-zhao/UniPC and modified
 
-import torch
+import mindspore
+from mindspore import mint
+import numpy as np
 import math
 import logging
 
 from tqdm.auto import trange
 
 
-class NoiseScheduleVP:
-    def __init__(
-            self,
-            schedule='discrete',
-            betas=None,
-            alphas_cumprod=None,
-            continuous_beta_0=0.1,
-            continuous_beta_1=20.,
-        ):
-        r"""Create a wrapper class for the forward SDE (VP type).
+# class NoiseScheduleVP:
+#     def __init__(
+#             self,
+#             schedule='discrete',
+#             betas=None,
+#             alphas_cumprod=None,
+#             continuous_beta_0=0.1,
+#             continuous_beta_1=20.,
+#         ):
+#         r"""Create a wrapper class for the forward SDE (VP type).
 
-        ***
-        Update: We support discrete-time diffusion models by implementing a picewise linear interpolation for log_alpha_t.
-                We recommend to use schedule='discrete' for the discrete-time diffusion models, especially for high-resolution images.
-        ***
+#         ***
+#         Update: We support discrete-time diffusion models by implementing a picewise linear interpolation for log_alpha_t.
+#                 We recommend to use schedule='discrete' for the discrete-time diffusion models, especially for high-resolution images.
+#         ***
 
-        The forward SDE ensures that the condition distribution q_{t|0}(x_t | x_0) = N ( alpha_t * x_0, sigma_t^2 * I ).
-        We further define lambda_t = log(alpha_t) - log(sigma_t), which is the half-logSNR (described in the DPM-Solver paper).
-        Therefore, we implement the functions for computing alpha_t, sigma_t and lambda_t. For t in [0, T], we have:
+#         The forward SDE ensures that the condition distribution q_{t|0}(x_t | x_0) = N ( alpha_t * x_0, sigma_t^2 * I ).
+#         We further define lambda_t = log(alpha_t) - log(sigma_t), which is the half-logSNR (described in the DPM-Solver paper).
+#         Therefore, we implement the functions for computing alpha_t, sigma_t and lambda_t. For t in [0, T], we have:
 
-            log_alpha_t = self.marginal_log_mean_coeff(t)
-            sigma_t = self.marginal_std(t)
-            lambda_t = self.marginal_lambda(t)
+#             log_alpha_t = self.marginal_log_mean_coeff(t)
+#             sigma_t = self.marginal_std(t)
+#             lambda_t = self.marginal_lambda(t)
 
-        Moreover, as lambda(t) is an invertible function, we also support its inverse function:
+#         Moreover, as lambda(t) is an invertible function, we also support its inverse function:
 
-            t = self.inverse_lambda(lambda_t)
+#             t = self.inverse_lambda(lambda_t)
 
-        ===============================================================
+#         ===============================================================
 
-        We support both discrete-time DPMs (trained on n = 0, 1, ..., N-1) and continuous-time DPMs (trained on t in [t_0, T]).
+#         We support both discrete-time DPMs (trained on n = 0, 1, ..., N-1) and continuous-time DPMs (trained on t in [t_0, T]).
 
-        1. For discrete-time DPMs:
+#         1. For discrete-time DPMs:
 
-            For discrete-time DPMs trained on n = 0, 1, ..., N-1, we convert the discrete steps to continuous time steps by:
-                t_i = (i + 1) / N
-            e.g. for N = 1000, we have t_0 = 1e-3 and T = t_{N-1} = 1.
-            We solve the corresponding diffusion ODE from time T = 1 to time t_0 = 1e-3.
+#             For discrete-time DPMs trained on n = 0, 1, ..., N-1, we convert the discrete steps to continuous time steps by:
+#                 t_i = (i + 1) / N
+#             e.g. for N = 1000, we have t_0 = 1e-3 and T = t_{N-1} = 1.
+#             We solve the corresponding diffusion ODE from time T = 1 to time t_0 = 1e-3.
 
-            Args:
-                betas: A `torch.Tensor`. The beta array for the discrete-time DPM. (See the original DDPM paper for details)
-                alphas_cumprod: A `torch.Tensor`. The cumprod alphas for the discrete-time DPM. (See the original DDPM paper for details)
+#             Args:
+#                 betas: A `mindspore.tensor`. The beta array for the discrete-time DPM. (See the original DDPM paper for details)
+#                 alphas_cumprod: A `mindspore.tensor`. The cumprod alphas for the discrete-time DPM. (See the original DDPM paper for details)
 
-            Note that we always have alphas_cumprod = cumprod(betas). Therefore, we only need to set one of `betas` and `alphas_cumprod`.
+#             Note that we always have alphas_cumprod = cumprod(betas). Therefore, we only need to set one of `betas` and `alphas_cumprod`.
 
-            **Important**:  Please pay special attention for the args for `alphas_cumprod`:
-                The `alphas_cumprod` is the \hat{alpha_n} arrays in the notations of DDPM. Specifically, DDPMs assume that
-                    q_{t_n | 0}(x_{t_n} | x_0) = N ( \sqrt{\hat{alpha_n}} * x_0, (1 - \hat{alpha_n}) * I ).
-                Therefore, the notation \hat{alpha_n} is different from the notation alpha_t in DPM-Solver. In fact, we have
-                    alpha_{t_n} = \sqrt{\hat{alpha_n}},
-                and
-                    log(alpha_{t_n}) = 0.5 * log(\hat{alpha_n}).
+#             **Important**:  Please pay special attention for the args for `alphas_cumprod`:
+#                 The `alphas_cumprod` is the \hat{alpha_n} arrays in the notations of DDPM. Specifically, DDPMs assume that
+#                     q_{t_n | 0}(x_{t_n} | x_0) = N ( \sqrt{\hat{alpha_n}} * x_0, (1 - \hat{alpha_n}) * I ).
+#                 Therefore, the notation \hat{alpha_n} is different from the notation alpha_t in DPM-Solver. In fact, we have
+#                     alpha_{t_n} = \sqrt{\hat{alpha_n}},
+#                 and
+#                     log(alpha_{t_n}) = 0.5 * log(\hat{alpha_n}).
 
 
-        2. For continuous-time DPMs:
+#         2. For continuous-time DPMs:
 
-            We support two types of VPSDEs: linear (DDPM) and cosine (improved-DDPM). The hyperparameters for the noise
-            schedule are the default settings in DDPM and improved-DDPM:
+#             We support two types of VPSDEs: linear (DDPM) and cosine (improved-DDPM). The hyperparameters for the noise
+#             schedule are the default settings in DDPM and improved-DDPM:
 
-            Args:
-                beta_min: A `float` number. The smallest beta for the linear schedule.
-                beta_max: A `float` number. The largest beta for the linear schedule.
-                cosine_s: A `float` number. The hyperparameter in the cosine schedule.
-                cosine_beta_max: A `float` number. The hyperparameter in the cosine schedule.
-                T: A `float` number. The ending time of the forward process.
+#             Args:
+#                 beta_min: A `float` number. The smallest beta for the linear schedule.
+#                 beta_max: A `float` number. The largest beta for the linear schedule.
+#                 cosine_s: A `float` number. The hyperparameter in the cosine schedule.
+#                 cosine_beta_max: A `float` number. The hyperparameter in the cosine schedule.
+#                 T: A `float` number. The ending time of the forward process.
 
-        ===============================================================
+#         ===============================================================
 
-        Args:
-            schedule: A `str`. The noise schedule of the forward SDE. 'discrete' for discrete-time DPMs,
-                    'linear' or 'cosine' for continuous-time DPMs.
-        Returns:
-            A wrapper object of the forward SDE (VP type).
+#         Args:
+#             schedule: A `str`. The noise schedule of the forward SDE. 'discrete' for discrete-time DPMs,
+#                     'linear' or 'cosine' for continuous-time DPMs.
+#         Returns:
+#             A wrapper object of the forward SDE (VP type).
 
-        ===============================================================
+#         ===============================================================
 
-        Example:
+#         Example:
 
-        # For discrete-time DPMs, given betas (the beta array for n = 0, 1, ..., N - 1):
-        >>> ns = NoiseScheduleVP('discrete', betas=betas)
+#         # For discrete-time DPMs, given betas (the beta array for n = 0, 1, ..., N - 1):
+#         >>> ns = NoiseScheduleVP('discrete', betas=betas)
 
-        # For discrete-time DPMs, given alphas_cumprod (the \hat{alpha_n} array for n = 0, 1, ..., N - 1):
-        >>> ns = NoiseScheduleVP('discrete', alphas_cumprod=alphas_cumprod)
+#         # For discrete-time DPMs, given alphas_cumprod (the \hat{alpha_n} array for n = 0, 1, ..., N - 1):
+#         >>> ns = NoiseScheduleVP('discrete', alphas_cumprod=alphas_cumprod)
 
-        # For continuous-time DPMs (VPSDE), linear schedule:
-        >>> ns = NoiseScheduleVP('linear', continuous_beta_0=0.1, continuous_beta_1=20.)
+#         # For continuous-time DPMs (VPSDE), linear schedule:
+#         >>> ns = NoiseScheduleVP('linear', continuous_beta_0=0.1, continuous_beta_1=20.)
 
-        """
+#         """
 
-        if schedule not in ['discrete', 'linear', 'cosine']:
-            raise ValueError("Unsupported noise schedule {}. The schedule needs to be 'discrete' or 'linear' or 'cosine'".format(schedule))
+#         if schedule not in ['discrete', 'linear', 'cosine']:
+#             raise ValueError("Unsupported noise schedule {}. The schedule needs to be 'discrete' or 'linear' or 'cosine'".format(schedule))
 
-        self.schedule = schedule
-        if schedule == 'discrete':
-            if betas is not None:
-                log_alphas = 0.5 * torch.log(1 - betas).cumsum(dim=0)
-            else:
-                assert alphas_cumprod is not None
-                log_alphas = 0.5 * torch.log(alphas_cumprod)
-            self.total_N = len(log_alphas)
-            self.T = 1.
-            self.t_array = torch.linspace(0., 1., self.total_N + 1)[1:].reshape((1, -1))
-            self.log_alpha_array = log_alphas.reshape((1, -1,))
-        else:
-            self.total_N = 1000
-            self.beta_0 = continuous_beta_0
-            self.beta_1 = continuous_beta_1
-            self.cosine_s = 0.008
-            self.cosine_beta_max = 999.
-            self.cosine_t_max = math.atan(self.cosine_beta_max * (1. + self.cosine_s) / math.pi) * 2. * (1. + self.cosine_s) / math.pi - self.cosine_s
-            self.cosine_log_alpha_0 = math.log(math.cos(self.cosine_s / (1. + self.cosine_s) * math.pi / 2.))
-            self.schedule = schedule
-            if schedule == 'cosine':
-                # For the cosine schedule, T = 1 will have numerical issues. So we manually set the ending time T.
-                # Note that T = 0.9946 may be not the optimal setting. However, we find it works well.
-                self.T = 0.9946
-            else:
-                self.T = 1.
+#         self.schedule = schedule
+#         if schedule == 'discrete':
+#             if betas is not None:
+#                 log_alphas = 0.5 * torch.log(1 - betas).cumsum(dim=0)
+#             else:
+#                 assert alphas_cumprod is not None
+#                 log_alphas = 0.5 * torch.log(alphas_cumprod)
+#             self.total_N = len(log_alphas)
+#             self.T = 1.
+#             self.t_array = torch.linspace(0., 1., self.total_N + 1)[1:].reshape((1, -1))
+#             self.log_alpha_array = log_alphas.reshape((1, -1,))
+#         else:
+#             self.total_N = 1000
+#             self.beta_0 = continuous_beta_0
+#             self.beta_1 = continuous_beta_1
+#             self.cosine_s = 0.008
+#             self.cosine_beta_max = 999.
+#             self.cosine_t_max = math.atan(self.cosine_beta_max * (1. + self.cosine_s) / math.pi) * 2. * (1. + self.cosine_s) / math.pi - self.cosine_s
+#             self.cosine_log_alpha_0 = math.log(math.cos(self.cosine_s / (1. + self.cosine_s) * math.pi / 2.))
+#             self.schedule = schedule
+#             if schedule == 'cosine':
+#                 # For the cosine schedule, T = 1 will have numerical issues. So we manually set the ending time T.
+#                 # Note that T = 0.9946 may be not the optimal setting. However, we find it works well.
+#                 self.T = 0.9946
+#             else:
+#                 self.T = 1.
 
-    def marginal_log_mean_coeff(self, t):
-        """
-        Compute log(alpha_t) of a given continuous-time label t in [0, T].
-        """
-        if self.schedule == 'discrete':
-            return interpolate_fn(t.reshape((-1, 1)), self.t_array.to(t.device), self.log_alpha_array.to(t.device)).reshape((-1))
-        elif self.schedule == 'linear':
-            return -0.25 * t ** 2 * (self.beta_1 - self.beta_0) - 0.5 * t * self.beta_0
-        elif self.schedule == 'cosine':
-            log_alpha_fn = lambda s: torch.log(torch.cos((s + self.cosine_s) / (1. + self.cosine_s) * math.pi / 2.))
-            log_alpha_t =  log_alpha_fn(t) - self.cosine_log_alpha_0
-            return log_alpha_t
+#     def marginal_log_mean_coeff(self, t):
+#         """
+#         Compute log(alpha_t) of a given continuous-time label t in [0, T].
+#         """
+#         if self.schedule == 'discrete':
+#             return interpolate_fn(t.reshape((-1, 1)), self.t_array.to(t.device), self.log_alpha_array.to(t.device)).reshape((-1))
+#         elif self.schedule == 'linear':
+#             return -0.25 * t ** 2 * (self.beta_1 - self.beta_0) - 0.5 * t * self.beta_0
+#         elif self.schedule == 'cosine':
+#             log_alpha_fn = lambda s: torch.log(torch.cos((s + self.cosine_s) / (1. + self.cosine_s) * math.pi / 2.))
+#             log_alpha_t =  log_alpha_fn(t) - self.cosine_log_alpha_0
+#             return log_alpha_t
 
-    def marginal_alpha(self, t):
-        """
-        Compute alpha_t of a given continuous-time label t in [0, T].
-        """
-        return torch.exp(self.marginal_log_mean_coeff(t))
+#     def marginal_alpha(self, t):
+#         """
+#         Compute alpha_t of a given continuous-time label t in [0, T].
+#         """
+#         return torch.exp(self.marginal_log_mean_coeff(t))
 
-    def marginal_std(self, t):
-        """
-        Compute sigma_t of a given continuous-time label t in [0, T].
-        """
-        return torch.sqrt(1. - torch.exp(2. * self.marginal_log_mean_coeff(t)))
+#     def marginal_std(self, t):
+#         """
+#         Compute sigma_t of a given continuous-time label t in [0, T].
+#         """
+#         return torch.sqrt(1. - torch.exp(2. * self.marginal_log_mean_coeff(t)))
 
-    def marginal_lambda(self, t):
-        """
-        Compute lambda_t = log(alpha_t) - log(sigma_t) of a given continuous-time label t in [0, T].
-        """
-        log_mean_coeff = self.marginal_log_mean_coeff(t)
-        log_std = 0.5 * torch.log(1. - torch.exp(2. * log_mean_coeff))
-        return log_mean_coeff - log_std
+#     def marginal_lambda(self, t):
+#         """
+#         Compute lambda_t = log(alpha_t) - log(sigma_t) of a given continuous-time label t in [0, T].
+#         """
+#         log_mean_coeff = self.marginal_log_mean_coeff(t)
+#         log_std = 0.5 * torch.log(1. - torch.exp(2. * log_mean_coeff))
+#         return log_mean_coeff - log_std
 
-    def inverse_lambda(self, lamb):
-        """
-        Compute the continuous-time label t in [0, T] of a given half-logSNR lambda_t.
-        """
-        if self.schedule == 'linear':
-            tmp = 2. * (self.beta_1 - self.beta_0) * torch.logaddexp(-2. * lamb, torch.zeros((1,)).to(lamb))
-            Delta = self.beta_0**2 + tmp
-            return tmp / (torch.sqrt(Delta) + self.beta_0) / (self.beta_1 - self.beta_0)
-        elif self.schedule == 'discrete':
-            log_alpha = -0.5 * torch.logaddexp(torch.zeros((1,)).to(lamb.device), -2. * lamb)
-            t = interpolate_fn(log_alpha.reshape((-1, 1)), torch.flip(self.log_alpha_array.to(lamb.device), [1]), torch.flip(self.t_array.to(lamb.device), [1]))
-            return t.reshape((-1,))
-        else:
-            log_alpha = -0.5 * torch.logaddexp(-2. * lamb, torch.zeros((1,)).to(lamb))
-            t_fn = lambda log_alpha_t: torch.arccos(torch.exp(log_alpha_t + self.cosine_log_alpha_0)) * 2. * (1. + self.cosine_s) / math.pi - self.cosine_s
-            t = t_fn(log_alpha)
-            return t
+#     def inverse_lambda(self, lamb):
+#         """
+#         Compute the continuous-time label t in [0, T] of a given half-logSNR lambda_t.
+#         """
+#         if self.schedule == 'linear':
+#             tmp = 2. * (self.beta_1 - self.beta_0) * torch.logaddexp(-2. * lamb, torch.zeros((1,)).to(lamb))
+#             Delta = self.beta_0**2 + tmp
+#             return tmp / (torch.sqrt(Delta) + self.beta_0) / (self.beta_1 - self.beta_0)
+#         elif self.schedule == 'discrete':
+#             log_alpha = -0.5 * torch.logaddexp(torch.zeros((1,)).to(lamb.device), -2. * lamb)
+#             t = interpolate_fn(log_alpha.reshape((-1, 1)), torch.flip(self.log_alpha_array.to(lamb.device), [1]), torch.flip(self.t_array.to(lamb.device), [1]))
+#             return t.reshape((-1,))
+#         else:
+#             log_alpha = -0.5 * torch.logaddexp(-2. * lamb, torch.zeros((1,)).to(lamb))
+#             t_fn = lambda log_alpha_t: torch.arccos(torch.exp(log_alpha_t + self.cosine_log_alpha_0)) * 2. * (1. + self.cosine_s) / math.pi - self.cosine_s
+#             t = t_fn(log_alpha)
+#             return t
 
 
 def model_wrapper(
@@ -292,7 +294,7 @@ def model_wrapper(
 
     def noise_pred_fn(x, t_continuous, cond=None):
         if t_continuous.reshape((-1,)).shape[0] == 1:
-            t_continuous = t_continuous.expand((x.shape[0]))
+            t_continuous = t_continuous.expand([x.shape[0]])
         t_input = get_model_input_time(t_continuous)
         output = model(x, t_input, **model_kwargs)
         if model_type == "noise":
@@ -314,33 +316,35 @@ def model_wrapper(
         """
         Compute the gradient of the classifier, i.e. nabla_{x} log p_t(cond | x_t).
         """
-        with torch.enable_grad():
-            x_in = x.detach().requires_grad_(True)
-            log_prob = classifier_fn(x_in, t_input, condition, **classifier_kwargs)
-            return torch.autograd.grad(log_prob.sum(), x_in)[0]
+        raise NotImplementedError
+        # with torch.enable_grad():
+        #     x_in = x.detach().requires_grad_(True)
+        #     log_prob = classifier_fn(x_in, t_input, condition, **classifier_kwargs)
+        #     return torch.autograd.grad(log_prob.sum(), x_in)[0]
 
     def model_fn(x, t_continuous):
         """
         The noise predicition model function that is used for DPM-Solver.
         """
         if t_continuous.reshape((-1,)).shape[0] == 1:
-            t_continuous = t_continuous.expand((x.shape[0]))
+            t_continuous = t_continuous.expand([x.shape[0]])
         if guidance_type == "uncond":
             return noise_pred_fn(x, t_continuous)
         elif guidance_type == "classifier":
-            assert classifier_fn is not None
-            t_input = get_model_input_time(t_continuous)
-            cond_grad = cond_grad_fn(x, t_input)
-            sigma_t = noise_schedule.marginal_std(t_continuous)
-            noise = noise_pred_fn(x, t_continuous)
-            return noise - guidance_scale * expand_dims(sigma_t, dims=cond_grad.dim()) * cond_grad
+            raise NotImplementedError
+            # assert classifier_fn is not None
+            # t_input = get_model_input_time(t_continuous)
+            # cond_grad = cond_grad_fn(x, t_input)
+            # sigma_t = noise_schedule.marginal_std(t_continuous)
+            # noise = noise_pred_fn(x, t_continuous)
+            # return noise - guidance_scale * expand_dims(sigma_t, dims=cond_grad.dim()) * cond_grad
         elif guidance_type == "classifier-free":
             if guidance_scale == 1. or unconditional_condition is None:
                 return noise_pred_fn(x, t_continuous, cond=condition)
             else:
-                x_in = torch.cat([x] * 2)
-                t_in = torch.cat([t_continuous] * 2)
-                c_in = torch.cat([unconditional_condition, condition])
+                x_in = mint.cat([x] * 2)
+                t_in = mint.cat([t_continuous] * 2)
+                c_in = mint.cat([unconditional_condition, condition])
                 noise_uncond, noise = noise_pred_fn(x_in, t_in, cond=c_in).chunk(2)
                 return noise_uncond + guidance_scale * (noise - noise_uncond)
 
@@ -376,9 +380,9 @@ class UniPC:
         """
         dims = x0.dim()
         p = self.dynamic_thresholding_ratio
-        s = torch.quantile(torch.abs(x0).reshape((x0.shape[0], -1)), p, dim=1)
-        s = expand_dims(torch.maximum(s, self.thresholding_max_val * torch.ones_like(s).to(s.device)), dims)
-        x0 = torch.clamp(x0, -s, s) / s
+        s = mint.quantile(mint.abs(x0).reshape((x0.shape[0], -1)), p, dim=1)
+        s = expand_dims(mint.maximum(s, self.thresholding_max_val * mint.ones_like(s)), dims)
+        x0 = mint.clamp(x0, -s, s) / s
         return x0
 
     def noise_prediction_fn(self, x, t):
@@ -397,9 +401,9 @@ class UniPC:
         x0 = (x - expand_dims(sigma_t, dims) * noise) / expand_dims(alpha_t, dims)
         if self.thresholding:
             p = 0.995   # A hyperparameter in the paper of "Imagen" [1].
-            s = torch.quantile(torch.abs(x0).reshape((x0.shape[0], -1)), p, dim=1)
-            s = expand_dims(torch.maximum(s, self.max_val * torch.ones_like(s).to(s.device)), dims)
-            x0 = torch.clamp(x0, -s, s) / s
+            s = mint.quantile(mint.abs(x0).reshape((x0.shape[0], -1)), p, dim=1)
+            s = expand_dims(mint.maximum(s, self.max_val * mint.ones_like(s)), dims)
+            x0 = mint.clamp(x0, -s, s) / s
         return x0
 
     def model_fn(self, x, t):
@@ -411,24 +415,24 @@ class UniPC:
         else:
             return self.noise_prediction_fn(x, t)
 
-    def get_time_steps(self, skip_type, t_T, t_0, N, device):
+    def get_time_steps(self, skip_type, t_T, t_0, N):
         """Compute the intermediate time steps for sampling.
         """
         if skip_type == 'logSNR':
-            lambda_T = self.noise_schedule.marginal_lambda(torch.tensor(t_T).to(device))
-            lambda_0 = self.noise_schedule.marginal_lambda(torch.tensor(t_0).to(device))
-            logSNR_steps = torch.linspace(lambda_T.cpu().item(), lambda_0.cpu().item(), N + 1).to(device)
+            lambda_T = self.noise_schedule.marginal_lambda(mindspore.tensor(t_T))
+            lambda_0 = self.noise_schedule.marginal_lambda(mindspore.tensor(t_0))
+            logSNR_steps = mint.linspace(lambda_T.cpu().item(), lambda_0.cpu().item(), N + 1)
             return self.noise_schedule.inverse_lambda(logSNR_steps)
         elif skip_type == 'time_uniform':
-            return torch.linspace(t_T, t_0, N + 1).to(device)
+            return mint.linspace(t_T, t_0, N + 1)
         elif skip_type == 'time_quadratic':
             t_order = 2
-            t = torch.linspace(t_T**(1. / t_order), t_0**(1. / t_order), N + 1).pow(t_order).to(device)
+            t = mint.linspace(t_T**(1. / t_order), t_0**(1. / t_order), N + 1).pow(t_order)
             return t
         else:
             raise ValueError("Unsupported skip_type {}, need to be 'logSNR' or 'time_uniform' or 'time_quadratic'".format(skip_type))
 
-    def get_orders_and_timesteps_for_singlestep_solver(self, steps, order, skip_type, t_T, t_0, device):
+    def get_orders_and_timesteps_for_singlestep_solver(self, steps, order, skip_type, t_T, t_0):
         """
         Get the order of each step for sampling by the singlestep DPM-Solver.
         """
@@ -454,9 +458,9 @@ class UniPC:
             raise ValueError("'order' must be '1' or '2' or '3'.")
         if skip_type == 'logSNR':
             # To reproduce the results in DPM-Solver paper
-            timesteps_outer = self.get_time_steps(skip_type, t_T, t_0, K, device)
+            timesteps_outer = self.get_time_steps(skip_type, t_T, t_0, K)
         else:
-            timesteps_outer = self.get_time_steps(skip_type, t_T, t_0, steps, device)[torch.cumsum(torch.tensor([0,] + orders), 0).to(device)]
+            timesteps_outer = self.get_time_steps(skip_type, t_T, t_0, steps)[mint.cumsum(mindspore.tensor([0,] + orders), 0)]
         return timesteps_outer, orders
 
     def denoise_to_zero_fn(self, x, s):
@@ -486,7 +490,7 @@ class UniPC:
         model_prev_0 = model_prev_list[-1]
         sigma_prev_0, sigma_t = ns.marginal_std(t_prev_0), ns.marginal_std(t)
         log_alpha_t = ns.marginal_log_mean_coeff(t)
-        alpha_t = torch.exp(log_alpha_t)
+        alpha_t = mint.exp(log_alpha_t)
 
         h = lambda_t - lambda_prev_0
 
@@ -501,29 +505,29 @@ class UniPC:
             D1s.append((model_prev_i - model_prev_0) / rk)
 
         rks.append(1.)
-        rks = torch.tensor(rks, device=x.device)
+        rks = mint.tensor(rks)
 
         K = len(rks)
         # build C matrix
         C = []
 
-        col = torch.ones_like(rks)
+        col = mint.ones_like(rks)
         for k in range(1, K + 1):
             C.append(col)
             col = col * rks / (k + 1)
-        C = torch.stack(C, dim=1)
+        C = mint.stack(C, dim=1)
 
         if len(D1s) > 0:
-            D1s = torch.stack(D1s, dim=1) # (B, K)
-            C_inv_p = torch.linalg.inv(C[:-1, :-1])
+            D1s = mint.stack(D1s, dim=1) # (B, K)
+            C_inv_p = mint.linalg.inv(C[:-1, :-1])
             A_p = C_inv_p
 
         if use_corrector:
-            C_inv = torch.linalg.inv(C)
+            C_inv = mint.linalg.inv(C)
             A_c = C_inv
 
         hh = -h if self.predict_x0 else h
-        h_phi_1 = torch.expm1(hh)
+        h_phi_1 = mint.expm1(hh)
         h_phi_ks = []
         factorial_k = 1
         h_phi_k = h_phi_1
@@ -543,7 +547,7 @@ class UniPC:
             if len(D1s) > 0:
                 # compute the residuals for predictor
                 for k in range(K - 1):
-                    x_t = x_t - alpha_t * h_phi_ks[k + 1] * torch.einsum('bkchw,k->bchw', D1s, A_p[k])
+                    x_t = x_t - alpha_t * h_phi_ks[k + 1] * mint.einsum('bkchw,k->bchw', D1s, A_p[k])
             # now corrector
             if use_corrector:
                 model_t = self.model_fn(x_t, t)
@@ -551,12 +555,12 @@ class UniPC:
                 x_t = x_t_
                 k = 0
                 for k in range(K - 1):
-                    x_t = x_t - alpha_t * h_phi_ks[k + 1] * torch.einsum('bkchw,k->bchw', D1s, A_c[k][:-1])
+                    x_t = x_t - alpha_t * h_phi_ks[k + 1] * mint.einsum('bkchw,k->bchw', D1s, A_c[k][:-1])
                 x_t = x_t - alpha_t * h_phi_ks[K] * (D1_t * A_c[k][-1])
         else:
             log_alpha_prev_0, log_alpha_t = ns.marginal_log_mean_coeff(t_prev_0), ns.marginal_log_mean_coeff(t)
             x_t_ = (
-                (torch.exp(log_alpha_t - log_alpha_prev_0)) * x
+                (mint.exp(log_alpha_t - log_alpha_prev_0)) * x
                 - (sigma_t * h_phi_1) * model_prev_0
             )
             # now predictor
@@ -564,7 +568,7 @@ class UniPC:
             if len(D1s) > 0:
                 # compute the residuals for predictor
                 for k in range(K - 1):
-                    x_t = x_t - sigma_t * h_phi_ks[k + 1] * torch.einsum('bkchw,k->bchw', D1s, A_p[k])
+                    x_t = x_t - sigma_t * h_phi_ks[k + 1] * mint.einsum('bkchw,k->bchw', D1s, A_p[k])
             # now corrector
             if use_corrector:
                 model_t = self.model_fn(x_t, t)
@@ -572,7 +576,7 @@ class UniPC:
                 x_t = x_t_
                 k = 0
                 for k in range(K - 1):
-                    x_t = x_t - sigma_t * h_phi_ks[k + 1] * torch.einsum('bkchw,k->bchw', D1s, A_c[k][:-1])
+                    x_t = x_t - sigma_t * h_phi_ks[k + 1] * mint.einsum('bkchw,k->bchw', D1s, A_c[k][:-1])
                 x_t = x_t - sigma_t * h_phi_ks[K] * (D1_t * A_c[k][-1])
         return x_t, model_t
 
@@ -589,7 +593,7 @@ class UniPC:
         model_prev_0 = model_prev_list[-1]
         sigma_prev_0, sigma_t = ns.marginal_std(t_prev_0), ns.marginal_std(t)
         log_alpha_prev_0, log_alpha_t = ns.marginal_log_mean_coeff(t_prev_0), ns.marginal_log_mean_coeff(t)
-        alpha_t = torch.exp(log_alpha_t)
+        alpha_t = mint.exp(log_alpha_t)
 
         h = lambda_t - lambda_prev_0
 
@@ -604,13 +608,13 @@ class UniPC:
             D1s.append((model_prev_i - model_prev_0) / rk)
 
         rks.append(1.)
-        rks = torch.tensor(rks, device=x.device)
+        rks = mindspore.tensor(rks)
 
         R = []
         b = []
 
         hh = -h[0] if self.predict_x0 else h[0]
-        h_phi_1 = torch.expm1(hh) # h\phi_1(h) = e^h - 1
+        h_phi_1 = mint.expm1(hh) # h\phi_1(h) = e^h - 1
         h_phi_k = h_phi_1 / hh - 1
 
         factorial_i = 1
@@ -618,29 +622,29 @@ class UniPC:
         if self.variant == 'bh1':
             B_h = hh
         elif self.variant == 'bh2':
-            B_h = torch.expm1(hh)
+            B_h = mint.expm1(hh)
         else:
             raise NotImplementedError()
 
         for i in range(1, order + 1):
-            R.append(torch.pow(rks, i - 1))
+            R.append(mint.pow(rks, i - 1))
             b.append(h_phi_k * factorial_i / B_h)
             factorial_i *= (i + 1)
             h_phi_k = h_phi_k / hh - 1 / factorial_i
 
-        R = torch.stack(R)
-        b = torch.tensor(b, device=x.device)
+        R = mint.stack(R)
+        b = mindspore.tensor(b)
 
         # now predictor
         use_predictor = len(D1s) > 0 and x_t is None
         if len(D1s) > 0:
-            D1s = torch.stack(D1s, dim=1) # (B, K)
+            D1s = mint.stack(D1s, dim=1) # (B, K)
             if x_t is None:
                 # for order 2, we use a simplified version
                 if order == 2:
-                    rhos_p = torch.tensor([0.5], device=b.device)
+                    rhos_p = mindspore.tensor([0.5])
                 else:
-                    rhos_p = torch.linalg.solve(R[:-1, :-1], b[:-1])
+                    rhos_p = mindspore.tensor(np.linalg.solve(R[:-1, :-1].numpy(), b[:-1].numpy()))
         else:
             D1s = None
 
@@ -648,9 +652,9 @@ class UniPC:
             # print('using corrector')
             # for order 1, we use a simplified version
             if order == 1:
-                rhos_c = torch.tensor([0.5], device=b.device)
+                rhos_c = mindspore.tensor([0.5])
             else:
-                rhos_c = torch.linalg.solve(R, b)
+                rhos_c = mindspore.tensor(np.linalg.solve(R.numpy(), b.numpy()))
 
         model_t = None
         if self.predict_x0:
@@ -661,7 +665,7 @@ class UniPC:
 
             if x_t is None:
                 if use_predictor:
-                    pred_res = torch.tensordot(D1s, rhos_p, dims=([1], [0]))  # torch.einsum('k,bkchw->bchw', rhos_p, D1s)
+                    pred_res = mindspore.numpy.tensordot(D1s, rhos_p, axes=([1], [0]))  # mint.einsum('k,bkchw->bchw', rhos_p, D1s)
                 else:
                     pred_res = 0
                 x_t = x_t_ - expand_dims(alpha_t * B_h, dims) * pred_res
@@ -669,19 +673,19 @@ class UniPC:
             if use_corrector:
                 model_t = self.model_fn(x_t, t)
                 if D1s is not None:
-                    corr_res = torch.tensordot(D1s, rhos_c[:-1], dims=([1], [0]))  # torch.einsum('k,bkchw->bchw', rhos_c[:-1], D1s)
+                    corr_res = mindspore.numpy.tensordot(D1s, rhos_c[:-1], axes=([1], [0]))  # mint.einsum('k,bkchw->bchw', rhos_c[:-1], D1s)
                 else:
                     corr_res = 0
                 D1_t = (model_t - model_prev_0)
                 x_t = x_t_ - expand_dims(alpha_t * B_h, dims) * (corr_res + rhos_c[-1] * D1_t)
         else:
             x_t_ = (
-                expand_dims(torch.exp(log_alpha_t - log_alpha_prev_0), dims) * x
+                expand_dims(mint.exp(log_alpha_t - log_alpha_prev_0), dims) * x
                 - expand_dims(sigma_t * h_phi_1, dims) * model_prev_0
             )
             if x_t is None:
                 if use_predictor:
-                    pred_res = torch.einsum('k,bkchw->bchw', rhos_p, D1s)
+                    pred_res = mint.einsum('k,bkchw->bchw', rhos_p, D1s)
                 else:
                     pred_res = 0
                 x_t = x_t_ - expand_dims(sigma_t * B_h, dims) * pred_res
@@ -689,7 +693,7 @@ class UniPC:
             if use_corrector:
                 model_t = self.model_fn(x_t, t)
                 if D1s is not None:
-                    corr_res = torch.einsum('k,bkchw->bchw', rhos_c[:-1], D1s)
+                    corr_res = mint.einsum('k,bkchw->bchw', rhos_c[:-1], D1s)
                 else:
                     corr_res = 0
                 D1_t = (model_t - model_prev_0)
@@ -711,14 +715,14 @@ class UniPC:
             # with torch.no_grad():
             for step_index in trange(steps, disable=disable_pbar):
                 if step_index == 0:
-                    vec_t = timesteps[0].expand((x.shape[0]))
+                    vec_t = timesteps[0].expand([x.shape[0]])
                     model_prev_list = [self.model_fn(x, vec_t)]
                     t_prev_list = [vec_t]
                 elif step_index < order:
                     init_order = step_index
                 # Init the first `order` values by lower order multistep DPM-Solver.
                 # for init_order in range(1, order):
-                    vec_t = timesteps[init_order].expand(x.shape[0])
+                    vec_t = timesteps[init_order].expand([x.shape[0]])
                     x, model_x = self.multistep_uni_pc_update(x, model_prev_list, t_prev_list, vec_t, init_order, use_corrector=True)
                     if model_x is None:
                         model_x = self.model_fn(x, vec_t)
@@ -729,7 +733,7 @@ class UniPC:
                     if step_index == (steps - 1):
                         extra_final_step = 1
                     for step in range(step_index, step_index + 1 + extra_final_step):
-                        vec_t = timesteps[step].expand(x.shape[0])
+                        vec_t = timesteps[step].expand([x.shape[0]])
                         if lower_order_final:
                             step_order = min(order, steps + 1 - step)
                         else:
@@ -755,54 +759,54 @@ class UniPC:
         else:
             raise NotImplementedError()
         # if denoise_to_zero:
-        #     x = self.denoise_to_zero_fn(x, torch.ones((x.shape[0],)).to(device) * t_0)
+        #     x = self.denoise_to_zero_fn(x, torch.ones((x.shape[0],)) * t_0)
         return x
 
 
-#############################################################
-# other utility functions
-#############################################################
+# #############################################################
+# # other utility functions
+# #############################################################
 
-def interpolate_fn(x, xp, yp):
-    """
-    A piecewise linear function y = f(x), using xp and yp as keypoints.
-    We implement f(x) in a differentiable way (i.e. applicable for autograd).
-    The function f(x) is well-defined for all x-axis. (For x beyond the bounds of xp, we use the outmost points of xp to define the linear function.)
+# def interpolate_fn(x, xp, yp):
+#     """
+#     A piecewise linear function y = f(x), using xp and yp as keypoints.
+#     We implement f(x) in a differentiable way (i.e. applicable for autograd).
+#     The function f(x) is well-defined for all x-axis. (For x beyond the bounds of xp, we use the outmost points of xp to define the linear function.)
 
-    Args:
-        x: PyTorch tensor with shape [N, C], where N is the batch size, C is the number of channels (we use C = 1 for DPM-Solver).
-        xp: PyTorch tensor with shape [C, K], where K is the number of keypoints.
-        yp: PyTorch tensor with shape [C, K].
-    Returns:
-        The function values f(x), with shape [N, C].
-    """
-    N, K = x.shape[0], xp.shape[1]
-    all_x = torch.cat([x.unsqueeze(2), xp.unsqueeze(0).repeat((N, 1, 1))], dim=2)
-    sorted_all_x, x_indices = torch.sort(all_x, dim=2)
-    x_idx = torch.argmin(x_indices, dim=2)
-    cand_start_idx = x_idx - 1
-    start_idx = torch.where(
-        torch.eq(x_idx, 0),
-        torch.tensor(1, device=x.device),
-        torch.where(
-            torch.eq(x_idx, K), torch.tensor(K - 2, device=x.device), cand_start_idx,
-        ),
-    )
-    end_idx = torch.where(torch.eq(start_idx, cand_start_idx), start_idx + 2, start_idx + 1)
-    start_x = torch.gather(sorted_all_x, dim=2, index=start_idx.unsqueeze(2)).squeeze(2)
-    end_x = torch.gather(sorted_all_x, dim=2, index=end_idx.unsqueeze(2)).squeeze(2)
-    start_idx2 = torch.where(
-        torch.eq(x_idx, 0),
-        torch.tensor(0, device=x.device),
-        torch.where(
-            torch.eq(x_idx, K), torch.tensor(K - 2, device=x.device), cand_start_idx,
-        ),
-    )
-    y_positions_expanded = yp.unsqueeze(0).expand(N, -1, -1)
-    start_y = torch.gather(y_positions_expanded, dim=2, index=start_idx2.unsqueeze(2)).squeeze(2)
-    end_y = torch.gather(y_positions_expanded, dim=2, index=(start_idx2 + 1).unsqueeze(2)).squeeze(2)
-    cand = start_y + (x - start_x) * (end_y - start_y) / (end_x - start_x)
-    return cand
+#     Args:
+#         x: PyTorch tensor with shape [N, C], where N is the batch size, C is the number of channels (we use C = 1 for DPM-Solver).
+#         xp: PyTorch tensor with shape [C, K], where K is the number of keypoints.
+#         yp: PyTorch tensor with shape [C, K].
+#     Returns:
+#         The function values f(x), with shape [N, C].
+#     """
+#     N, K = x.shape[0], xp.shape[1]
+#     all_x = mint.cat([x.unsqueeze(2), xp.unsqueeze(0).repeat((N, 1, 1))], dim=2)
+#     sorted_all_x, x_indices = torch.sort(all_x, dim=2)
+#     x_idx = torch.argmin(x_indices, dim=2)
+#     cand_start_idx = x_idx - 1
+#     start_idx = torch.where(
+#         torch.eq(x_idx, 0),
+#         mindspore.tensor(1),
+#         torch.where(
+#             torch.eq(x_idx, K), mindspore.tensor(K - 2), cand_start_idx,
+#         ),
+#     )
+#     end_idx = torch.where(torch.eq(start_idx, cand_start_idx), start_idx + 2, start_idx + 1)
+#     start_x = torch.gather(sorted_all_x, dim=2, index=start_idx.unsqueeze(2)).squeeze(2)
+#     end_x = torch.gather(sorted_all_x, dim=2, index=end_idx.unsqueeze(2)).squeeze(2)
+#     start_idx2 = torch.where(
+#         torch.eq(x_idx, 0),
+#         mindspore.tensor(0),
+#         torch.where(
+#             torch.eq(x_idx, K), mindspore.tensor(K - 2), cand_start_idx,
+#         ),
+#     )
+#     y_positions_expanded = yp.unsqueeze(0).expand(N, -1, -1)
+#     start_y = torch.gather(y_positions_expanded, dim=2, index=start_idx2.unsqueeze(2)).squeeze(2)
+#     end_y = torch.gather(y_positions_expanded, dim=2, index=(start_idx2 + 1).unsqueeze(2)).squeeze(2)
+#     cand = start_y + (x - start_x) * (end_y - start_y) / (end_x - start_x)
+#     return cand
 
 
 def expand_dims(v, dims):
@@ -821,20 +825,20 @@ def expand_dims(v, dims):
 class SigmaConvert:
     schedule = ""
     def marginal_log_mean_coeff(self, sigma):
-        return 0.5 * torch.log(1 / ((sigma * sigma) + 1))
+        return 0.5 * mint.log(1 / ((sigma * sigma) + 1))
 
     def marginal_alpha(self, t):
-        return torch.exp(self.marginal_log_mean_coeff(t))
+        return mint.exp(self.marginal_log_mean_coeff(t))
 
     def marginal_std(self, t):
-        return torch.sqrt(1. - torch.exp(2. * self.marginal_log_mean_coeff(t)))
+        return mint.sqrt(1. - mint.exp(2. * self.marginal_log_mean_coeff(t)))
 
     def marginal_lambda(self, t):
         """
         Compute lambda_t = log(alpha_t) - log(sigma_t) of a given continuous-time label t in [0, T].
         """
         log_mean_coeff = self.marginal_log_mean_coeff(t)
-        log_std = 0.5 * torch.log(1. - torch.exp(2. * log_mean_coeff))
+        log_std = 0.5 * mint.log(1. - mint.exp(2. * log_mean_coeff))
         return log_mean_coeff - log_std
 
 def predict_eps_sigma(model, input, sigma_in, **kwargs):
@@ -844,15 +848,15 @@ def predict_eps_sigma(model, input, sigma_in, **kwargs):
 
 
 def sample_unipc(model, noise, sigmas, extra_args=None, callback=None, disable=False, variant='bh1'):
-        timesteps = sigmas.clone()
+        timesteps = sigmas.copy()
         if sigmas[-1] == 0:
             timesteps = sigmas[:]
             timesteps[-1] = 0.001
         else:
-            timesteps = sigmas.clone()
+            timesteps = sigmas.copy()
         ns = SigmaConvert()
 
-        noise = noise / torch.sqrt(1.0 + timesteps[0] ** 2.0)
+        noise = noise / mint.sqrt(1.0 + timesteps[0] ** 2.0)
         model_type = "noise"
 
         model_fn = model_wrapper(
@@ -869,5 +873,5 @@ def sample_unipc(model, noise, sigmas, extra_args=None, callback=None, disable=F
         x /= ns.marginal_alpha(timesteps[-1])
         return x
 
-def sample_unipc_bh2(model, noise, sigmas, extra_args=None, callback=None, disable=False):
-    return sample_unipc(model, noise, sigmas, extra_args, callback, disable, variant='bh2')
+# def sample_unipc_bh2(model, noise, sigmas, extra_args=None, callback=None, disable=False):
+#     return sample_unipc(model, noise, sigmas, extra_args, callback, disable, variant='bh2')

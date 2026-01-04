@@ -1,4 +1,4 @@
-import torch
+import mindspore
 import os
 
 class SPieceTokenizer:
@@ -10,7 +10,7 @@ class SPieceTokenizer:
         self.add_bos = add_bos
         self.add_eos = add_eos
         import sentencepiece
-        if torch.is_tensor(tokenizer_path):
+        if mindspore.is_tensor(tokenizer_path):
             tokenizer_path = tokenizer_path.numpy().tobytes()
 
         if isinstance(tokenizer_path, bytes):
@@ -31,4 +31,4 @@ class SPieceTokenizer:
         return {"input_ids": out}
 
     def serialize_model(self):
-        return torch.ByteTensor(list(self.tokenizer.serialized_model_proto()))
+        return mindspore.tensor(list(self.tokenizer.serialized_model_proto()), dtype=mindspore.uint8)
