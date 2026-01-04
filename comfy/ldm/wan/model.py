@@ -2,32 +2,73 @@
 # Copyright 2024-2025 The Alibaba Wan Team Authors. All rights reserved.
 import math
 
-import torch
-import torch.nn as nn
-from einops import rearrange
+import mindspore as ms
+import mindspore.nn as nn
+import mindspore.mint as mint
 
 from comfy.ldm.modules.attention import optimized_attention
 from comfy.ldm.flux.layers import EmbedND
 from comfy.ldm.flux.math import apply_rope1
 import comfy.ldm.common_dit
-import comfy.model_management
 import comfy.patcher_extension
+
+
+def unflatten(input, dim, sizes):
+    """
+    Equivalence of `torch.unflatten`
+
+    Args:
+        tensor (ms.Tensor): The input tensor to unflatten.
+        dim (int): The dimension to unflatten.
+        sizes (tuple[int]): The target shape for the specified dimension.
+
+    Returns:
+        Tensor: A tensor with the specified dimension unflattened into the target shape.
+
+    Raises:
+        ValueError: If the specified dimension is out of range or if the product
+                    of sizes does not match the size of the given dimension.
+    """
+    shape = input.shape
+
+    dim = dim if dim >= 0 else dim + input.ndim
+
+    # check validation of dim
+    if dim < 0 or dim >= len(shape):
+        raise ValueError(f"Invalid dimension {dim} for tensor with shape {input.shape}")
+
+    # Calculate the product of sizes, excluding -1
+    sizes_prod = 1
+    num_unknown = 0
+    for size in sizes:
+        if size == -1:
+            num_unknown += 1
+        else:
+            sizes_prod *= size
+
+    # If there is one unknown size, calculate it
+    if num_unknown == 1:
+        sizes = tuple(size if size != -1 else shape[dim] // sizes_prod for size in sizes)
+
+    new_shape = shape[:dim] + sizes + shape[dim + 1 :]
+
+    return input.reshape(new_shape)
 
 
 def sinusoidal_embedding_1d(dim, position):
     # preprocess
     assert dim % 2 == 0
     half = dim // 2
-    position = position.type(torch.float32)
+    position = position.type(ms.float32)
 
     # calculation
-    sinusoid = torch.outer(
-        position, torch.pow(10000, -torch.arange(half).to(position).div(half)))
-    x = torch.cat([torch.cos(sinusoid), torch.sin(sinusoid)], dim=1)
+    sinusoid = mint.outer(
+        position, mint.pow(10000, -mint.arange(half).to(position.dtype).div(half)))
+    x = mint.cat([mint.cos(sinusoid), mint.sin(sinusoid)], dim=1)
     return x
 
 
-class WanSelfAttention(nn.Module):
+class WanSelfAttention(nn.Cell):
 
     def __init__(self,
                  dim,
@@ -49,14 +90,14 @@ class WanSelfAttention(nn.Module):
             kv_dim = dim
 
         # layers
-        self.q = operation_settings.get("operations").Linear(dim, dim, device=operation_settings.get("device"), dtype=operation_settings.get("dtype"))
-        self.k = operation_settings.get("operations").Linear(kv_dim, dim, device=operation_settings.get("device"), dtype=operation_settings.get("dtype"))
-        self.v = operation_settings.get("operations").Linear(kv_dim, dim, device=operation_settings.get("device"), dtype=operation_settings.get("dtype"))
-        self.o = operation_settings.get("operations").Linear(dim, dim, device=operation_settings.get("device"), dtype=operation_settings.get("dtype"))
-        self.norm_q = operation_settings.get("operations").RMSNorm(dim, eps=eps, elementwise_affine=True, device=operation_settings.get("device"), dtype=operation_settings.get("dtype")) if qk_norm else nn.Identity()
-        self.norm_k = operation_settings.get("operations").RMSNorm(dim, eps=eps, elementwise_affine=True, device=operation_settings.get("device"), dtype=operation_settings.get("dtype")) if qk_norm else nn.Identity()
+        self.q = operation_settings.get("operations").Linear(dim, dim, dtype=operation_settings.get("dtype"))
+        self.k = operation_settings.get("operations").Linear(kv_dim, dim, dtype=operation_settings.get("dtype"))
+        self.v = operation_settings.get("operations").Linear(kv_dim, dim, dtype=operation_settings.get("dtype"))
+        self.o = operation_settings.get("operations").Linear(dim, dim, dtype=operation_settings.get("dtype"))
+        self.norm_q = operation_settings.get("operations").RMSNorm(dim, eps=eps, elementwise_affine=True, dtype=operation_settings.get("dtype")) if qk_norm else nn.Identity()
+        self.norm_k = operation_settings.get("operations").RMSNorm(dim, eps=eps, elementwise_affine=True, dtype=operation_settings.get("dtype")) if qk_norm else nn.Identity()
 
-    def forward(self, x, freqs, transformer_options={}):
+    def construct(self, x, freqs, transformer_options={}):
         r"""
         Args:
             x(Tensor): Shape [B, L, num_heads, C / num_heads]
@@ -92,7 +133,7 @@ class WanSelfAttention(nn.Module):
 
 class WanT2VCrossAttention(WanSelfAttention):
 
-    def forward(self, x, context, transformer_options={}, **kwargs):
+    def construct(self, x, context, transformer_options={}, **kwargs):
         r"""
         Args:
             x(Tensor): Shape [B, L1, C]
@@ -120,12 +161,12 @@ class WanI2VCrossAttention(WanSelfAttention):
                  eps=1e-6, operation_settings={}):
         super().__init__(dim, num_heads, window_size, qk_norm, eps, operation_settings=operation_settings)
 
-        self.k_img = operation_settings.get("operations").Linear(dim, dim, device=operation_settings.get("device"), dtype=operation_settings.get("dtype"))
-        self.v_img = operation_settings.get("operations").Linear(dim, dim, device=operation_settings.get("device"), dtype=operation_settings.get("dtype"))
-        # self.alpha = nn.Parameter(torch.zeros((1, )))
-        self.norm_k_img = operation_settings.get("operations").RMSNorm(dim, eps=eps, elementwise_affine=True, device=operation_settings.get("device"), dtype=operation_settings.get("dtype")) if qk_norm else nn.Identity()
+        self.k_img = operation_settings.get("operations").Linear(dim, dim, dtype=operation_settings.get("dtype"))
+        self.v_img = operation_settings.get("operations").Linear(dim, dim, dtype=operation_settings.get("dtype"))
+        # self.alpha = nn.Parameter(mint.zeros((1, )))
+        self.norm_k_img = operation_settings.get("operations").RMSNorm(dim, eps=eps, elementwise_affine=True, dtype=operation_settings.get("dtype")) if qk_norm else nn.Identity()
 
-    def forward(self, x, context, context_img_len, transformer_options={}):
+    def construct(self, x, context, context_img_len, transformer_options={}):
         r"""
         Args:
             x(Tensor): Shape [B, L1, C]
@@ -158,17 +199,17 @@ WAN_CROSSATTENTION_CLASSES = {
 
 def repeat_e(e, x):
     repeats = 1
-    if e.size(1) > 1:
-        repeats = x.size(1) // e.size(1)
+    if e.shape[1] > 1:
+        repeats = x.shape[1] // e.shape[1]
     if repeats == 1:
         return e
-    if repeats * e.size(1) == x.size(1):
-        return torch.repeat_interleave(e, repeats, dim=1)
+    if repeats * e.shape[1] == x.shape[1]:
+        return mint.repeat_interleave(e, repeats, dim=1)
     else:
-        return torch.repeat_interleave(e, repeats + 1, dim=1)[:, :x.size(1)]
+        return mint.repeat_interleave(e, repeats + 1, dim=1)[:, :x.shape[1]]
 
 
-class WanAttentionBlock(nn.Module):
+class WanAttentionBlock(nn.Cell):
 
     def __init__(self,
                  cross_attn_type,
@@ -189,26 +230,26 @@ class WanAttentionBlock(nn.Module):
         self.eps = eps
 
         # layers
-        self.norm1 = operation_settings.get("operations").LayerNorm(dim, eps, elementwise_affine=False, device=operation_settings.get("device"), dtype=operation_settings.get("dtype"))
+        self.norm1 = operation_settings.get("operations").LayerNorm(dim, eps, elementwise_affine=False, dtype=operation_settings.get("dtype"))
         self.self_attn = WanSelfAttention(dim, num_heads, window_size, qk_norm,
                                           eps, operation_settings=operation_settings)
         self.norm3 = operation_settings.get("operations").LayerNorm(
             dim, eps,
-            elementwise_affine=True, device=operation_settings.get("device"), dtype=operation_settings.get("dtype")) if cross_attn_norm else nn.Identity()
+            elementwise_affine=True, dtype=operation_settings.get("dtype")) if cross_attn_norm else nn.Identity()
         self.cross_attn = WAN_CROSSATTENTION_CLASSES[cross_attn_type](dim,
                                                                       num_heads,
                                                                       (-1, -1),
                                                                       qk_norm,
                                                                       eps, operation_settings=operation_settings)
-        self.norm2 = operation_settings.get("operations").LayerNorm(dim, eps, elementwise_affine=False, device=operation_settings.get("device"), dtype=operation_settings.get("dtype"))
-        self.ffn = nn.Sequential(
-            operation_settings.get("operations").Linear(dim, ffn_dim, device=operation_settings.get("device"), dtype=operation_settings.get("dtype")), nn.GELU(approximate='tanh'),
-            operation_settings.get("operations").Linear(ffn_dim, dim, device=operation_settings.get("device"), dtype=operation_settings.get("dtype")))
+        self.norm2 = operation_settings.get("operations").LayerNorm(dim, eps, elementwise_affine=False, dtype=operation_settings.get("dtype"))
+        self.ffn = nn.SequentialCell(
+            operation_settings.get("operations").Linear(dim, ffn_dim, dtype=operation_settings.get("dtype")), mint.nn.GELU(approximate='tanh'),
+            operation_settings.get("operations").Linear(ffn_dim, dim, dtype=operation_settings.get("dtype")))
 
         # modulation
-        self.modulation = nn.Parameter(torch.empty(1, 6, dim, device=operation_settings.get("device"), dtype=operation_settings.get("dtype")))
+        self.modulation = ms.Parameter(mint.empty(1, 6, dim, dtype=operation_settings.get("dtype")))
 
-    def forward(
+    def construct(
         self,
         x,
         e,
@@ -223,27 +264,27 @@ class WanAttentionBlock(nn.Module):
             e(Tensor): Shape [B, 6, C]
             freqs(Tensor): Rope freqs, shape [1024, C / num_heads / 2]
         """
-        # assert e.dtype == torch.float32
+        # assert e.dtype == ms.float32
 
         if e.ndim < 4:
-            e = (comfy.model_management.cast_to(self.modulation, dtype=x.dtype, device=x.device) + e).chunk(6, dim=1)
+            e = (comfy.model_management.cast_to(self.modulation, dtype=x.dtype) + e).chunk(6, dim=1)
         else:
-            e = (comfy.model_management.cast_to(self.modulation, dtype=x.dtype, device=x.device).unsqueeze(0) + e).unbind(2)
-        # assert e[0].dtype == torch.float32
+            e = (comfy.model_management.cast_to(self.modulation, dtype=x.dtype).unsqueeze(0) + e).unbind(2)
+        # assert e[0].dtype == ms.float32
 
         # self-attention
         x = x.contiguous() # otherwise implicit in LayerNorm
         y = self.self_attn(
-            torch.addcmul(repeat_e(e[0], x), self.norm1(x), 1 + repeat_e(e[1], x)),
+            mint.addcmul(repeat_e(e[0], x), self.norm1(x), 1 + repeat_e(e[1], x)),
             freqs, transformer_options=transformer_options)
 
-        x = torch.addcmul(x, y, repeat_e(e[2], x))
+        x = mint.addcmul(x, y, repeat_e(e[2], x))
         del y
 
         # cross-attention & ffn
         x = x + self.cross_attn(self.norm3(x), context, context_img_len=context_img_len, transformer_options=transformer_options)
-        y = self.ffn(torch.addcmul(repeat_e(e[3], x), self.norm2(x), 1 + repeat_e(e[4], x)))
-        x = torch.addcmul(x, y, repeat_e(e[5], x))
+        y = self.ffn(mint.addcmul(repeat_e(e[3], x), self.norm2(x), 1 + repeat_e(e[4], x)))
+        x = mint.addcmul(x, y, repeat_e(e[5], x))
         return x
 
 
@@ -264,18 +305,18 @@ class VaceWanAttentionBlock(WanAttentionBlock):
         super().__init__(cross_attn_type, dim, ffn_dim, num_heads, window_size, qk_norm, cross_attn_norm, eps, operation_settings=operation_settings)
         self.block_id = block_id
         if block_id == 0:
-            self.before_proj = operation_settings.get("operations").Linear(self.dim, self.dim, device=operation_settings.get("device"), dtype=operation_settings.get("dtype"))
-        self.after_proj = operation_settings.get("operations").Linear(self.dim, self.dim, device=operation_settings.get("device"), dtype=operation_settings.get("dtype"))
+            self.before_proj = operation_settings.get("operations").Linear(self.dim, self.dim, dtype=operation_settings.get("dtype"))
+        self.after_proj = operation_settings.get("operations").Linear(self.dim, self.dim, dtype=operation_settings.get("dtype"))
 
-    def forward(self, c, x, **kwargs):
+    def construct(self, c, x, **kwargs):
         if self.block_id == 0:
             c = self.before_proj(c) + x
-        c = super().forward(c, **kwargs)
+        c = super().construct(c, **kwargs)
         c_skip = self.after_proj(c)
         return c_skip, c
 
 
-class WanCamAdapter(nn.Module):
+class WanCamAdapter(nn.Cell):
     def __init__(self, in_dim, out_dim, kernel_size, stride, num_residual_blocks=1, operation_settings={}):
         super(WanCamAdapter, self).__init__()
 
@@ -284,16 +325,16 @@ class WanCamAdapter(nn.Module):
 
         # Convolution: reduce spatial dimensions by a factor
         #  of 2 (without overlap)
-        self.conv = operation_settings.get("operations").Conv2d(in_dim * 64, out_dim, kernel_size=kernel_size, stride=stride, padding=0, device=operation_settings.get("device"), dtype=operation_settings.get("dtype"))
+        self.conv = operation_settings.get("operations").Conv2d(in_dim * 64, out_dim, kernel_size=kernel_size, stride=stride, padding=0, dtype=operation_settings.get("dtype"))
 
         # Residual blocks for feature extraction
-        self.residual_blocks = nn.Sequential(
+        self.residual_blocks = nn.SequentialCell(
             *[WanCamResidualBlock(out_dim, operation_settings = operation_settings) for _ in range(num_residual_blocks)]
         )
 
-    def forward(self, x):
+    def construct(self, x):
         # Reshape to merge the frame dimension into batch
-        bs, c, f, h, w = x.size()
+        bs, c, f, h, w = x.shape
         x = x.permute(0, 2, 1, 3, 4).contiguous().view(bs * f, c, h, w)
 
         # Pixel Unshuffle operation
@@ -306,7 +347,7 @@ class WanCamAdapter(nn.Module):
         out = self.residual_blocks(x_conv)
 
         # Reshape to restore original bf dimension
-        out = out.view(bs, f, out.size(1), out.size(2), out.size(3))
+        out = out.view(bs, f, out.shape[1], out.shape[2], out.shape[3])
 
         # Permute dimensions to reorder (if needed), e.g., swap channels and feature frames
         out = out.permute(0, 2, 1, 3, 4)
@@ -314,14 +355,14 @@ class WanCamAdapter(nn.Module):
         return out
 
 
-class WanCamResidualBlock(nn.Module):
+class WanCamResidualBlock(nn.Cell):
     def __init__(self, dim, operation_settings={}):
         super(WanCamResidualBlock, self).__init__()
-        self.conv1 = operation_settings.get("operations").Conv2d(dim, dim, kernel_size=3, padding=1, device=operation_settings.get("device"), dtype=operation_settings.get("dtype"))
-        self.relu = nn.ReLU(inplace=True)
-        self.conv2 = operation_settings.get("operations").Conv2d(dim, dim, kernel_size=3, padding=1, device=operation_settings.get("device"), dtype=operation_settings.get("dtype"))
+        self.conv1 = operation_settings.get("operations").Conv2d(dim, dim, kernel_size=3, padding=1, dtype=operation_settings.get("dtype"))
+        self.relu = mint.nn.ReLU()
+        self.conv2 = operation_settings.get("operations").Conv2d(dim, dim, kernel_size=3, padding=1, dtype=operation_settings.get("dtype"))
 
-    def forward(self, x):
+    def construct(self, x):
         residual = x
         out = self.relu(self.conv1(x))
         out = self.conv2(out)
@@ -329,7 +370,7 @@ class WanCamResidualBlock(nn.Module):
         return out
 
 
-class Head(nn.Module):
+class Head(nn.Cell):
 
     def __init__(self, dim, out_dim, patch_size, eps=1e-6, operation_settings={}):
         super().__init__()
@@ -340,52 +381,55 @@ class Head(nn.Module):
 
         # layers
         out_dim = math.prod(patch_size) * out_dim
-        self.norm = operation_settings.get("operations").LayerNorm(dim, eps, elementwise_affine=False, device=operation_settings.get("device"), dtype=operation_settings.get("dtype"))
-        self.head = operation_settings.get("operations").Linear(dim, out_dim, device=operation_settings.get("device"), dtype=operation_settings.get("dtype"))
+        self.norm = operation_settings.get("operations").LayerNorm(dim, eps, elementwise_affine=False, dtype=operation_settings.get("dtype"))
+        self.head = operation_settings.get("operations").Linear(dim, out_dim, dtype=operation_settings.get("dtype"))
 
         # modulation
-        self.modulation = nn.Parameter(torch.empty(1, 2, dim, device=operation_settings.get("device"), dtype=operation_settings.get("dtype")))
+        self.modulation = ms.Parameter(mint.empty(1, 2, dim, dtype=operation_settings.get("dtype")))
 
-    def forward(self, x, e):
+    def construct(self, x, e):
         r"""
         Args:
             x(Tensor): Shape [B, L1, C]
             e(Tensor): Shape [B, C]
         """
-        # assert e.dtype == torch.float32
+        # assert e.dtype == ms.float32
         if e.ndim < 3:
-            e = (comfy.model_management.cast_to(self.modulation, dtype=x.dtype, device=x.device) + e.unsqueeze(1)).chunk(2, dim=1)
+            # e = (comfy.model_management.cast_to(self.modulation, dtype=x.dtype) + e.unsqueeze(1)).chunk(2, dim=1)
+            e = self.modulation.to(dtype=x.dtype + e.unsqueeze(1)).chunk(2, dim=1)
         else:
-            e = (comfy.model_management.cast_to(self.modulation, dtype=x.dtype, device=x.device).unsqueeze(0) + e.unsqueeze(2)).unbind(2)
+            # e = (comfy.model_management.cast_to(self.modulation, dtype=x.dtype).unsqueeze(0) + e.unsqueeze(2)).unbind(2)
+            e = (self.modulation.to(dtype=x.dtype).unsqueeze(0) + e.unsqueeze(2)).unbind(2)
 
-        x = (self.head(torch.addcmul(repeat_e(e[0], x), self.norm(x), 1 + repeat_e(e[1], x))))
+        x = (self.head(mint.addcmul(repeat_e(e[0], x), self.norm(x), 1 + repeat_e(e[1], x))))
         return x
 
 
-class MLPProj(torch.nn.Module):
+class MLPProj(nn.Cell):
 
     def __init__(self, in_dim, out_dim, flf_pos_embed_token_number=None, operation_settings={}):
         super().__init__()
 
-        self.proj = torch.nn.Sequential(
-            operation_settings.get("operations").LayerNorm(in_dim, device=operation_settings.get("device"), dtype=operation_settings.get("dtype")), operation_settings.get("operations").Linear(in_dim, in_dim, device=operation_settings.get("device"), dtype=operation_settings.get("dtype")),
-            torch.nn.GELU(), operation_settings.get("operations").Linear(in_dim, out_dim, device=operation_settings.get("device"), dtype=operation_settings.get("dtype")),
-            operation_settings.get("operations").LayerNorm(out_dim, device=operation_settings.get("device"), dtype=operation_settings.get("dtype")))
+        self.proj = nn.SequentialCell(
+            operation_settings.get("operations").LayerNorm(in_dim, dtype=operation_settings.get("dtype")), operation_settings.get("operations").Linear(in_dim, in_dim, dtype=operation_settings.get("dtype")),
+            mint.nn.GELU(), 
+            operation_settings.get("operations").Linear(in_dim, out_dim, dtype=operation_settings.get("dtype")),
+            operation_settings.get("operations").LayerNorm(out_dim, dtype=operation_settings.get("dtype")))
 
         if flf_pos_embed_token_number is not None:
-            self.emb_pos = nn.Parameter(torch.empty((1, flf_pos_embed_token_number, in_dim), device=operation_settings.get("device"), dtype=operation_settings.get("dtype")))
+            self.emb_pos = ms.Parameter(mint.empty((1, flf_pos_embed_token_number, in_dim), dtype=operation_settings.get("dtype")))
         else:
             self.emb_pos = None
 
-    def forward(self, image_embeds):
+    def construct(self, image_embeds):
         if self.emb_pos is not None:
-            image_embeds = image_embeds[:, :self.emb_pos.shape[1]] + comfy.model_management.cast_to(self.emb_pos[:, :image_embeds.shape[1]], dtype=image_embeds.dtype, device=image_embeds.device)
+            image_embeds = image_embeds[:, :self.emb_pos.shape[1]] + self.emb_pos[:, :image_embeds.shape[1]].to(dtype=image_embeds.dtype)
 
         clip_extra_context_tokens = self.proj(image_embeds)
         return clip_extra_context_tokens
 
 
-class WanModel(torch.nn.Module):
+class WanModel(nn.Cell):
     r"""
     Wan diffusion backbone supporting both text-to-video and image-to-video.
     """
@@ -474,18 +518,18 @@ class WanModel(torch.nn.Module):
 
         # embeddings
         self.patch_embedding = operations.Conv3d(
-            in_dim, dim, kernel_size=patch_size, stride=patch_size, device=operation_settings.get("device"), dtype=torch.float32)
-        self.text_embedding = nn.Sequential(
-            operations.Linear(text_dim, dim, device=operation_settings.get("device"), dtype=operation_settings.get("dtype")), nn.GELU(approximate='tanh'),
-            operations.Linear(dim, dim, device=operation_settings.get("device"), dtype=operation_settings.get("dtype")))
+            in_dim, dim, kernel_size=patch_size, stride=patch_size, dtype=ms.float32)
+        self.text_embedding = nn.SequentialCell(
+            operations.Linear(text_dim, dim, dtype=operation_settings.get("dtype")), mint.nn.GELU(approximate='tanh'),
+            operations.Linear(dim, dim, dtype=operation_settings.get("dtype")))
 
-        self.time_embedding = nn.Sequential(
-            operations.Linear(freq_dim, dim, device=operation_settings.get("device"), dtype=operation_settings.get("dtype")), nn.SiLU(), operations.Linear(dim, dim, device=operation_settings.get("device"), dtype=operation_settings.get("dtype")))
-        self.time_projection = nn.Sequential(nn.SiLU(), operations.Linear(dim, dim * 6, device=operation_settings.get("device"), dtype=operation_settings.get("dtype")))
+        self.time_embedding = nn.SequentialCell(
+            operations.Linear(freq_dim, dim, dtype=operation_settings.get("dtype")), mint.nn.SiLU(), operations.Linear(dim, dim, dtype=operation_settings.get("dtype")))
+        self.time_projection = nn.SequentialCell(mint.nn.SiLU(), operations.Linear(dim, dim * 6, dtype=operation_settings.get("dtype")))
 
         # blocks
         cross_attn_type = 't2v_cross_attn' if model_type == 't2v' else 'i2v_cross_attn'
-        self.blocks = nn.ModuleList([
+        self.blocks = nn.CellList([
             wan_attn_block_class(cross_attn_type, dim, ffn_dim, num_heads,
                                  window_size, qk_norm, cross_attn_norm, eps, operation_settings=operation_settings)
             for _ in range(num_layers)
@@ -503,7 +547,7 @@ class WanModel(torch.nn.Module):
             self.img_emb = None
 
         if in_dim_ref_conv is not None:
-            self.ref_conv = operations.Conv2d(in_dim_ref_conv, dim, kernel_size=patch_size[1:], stride=patch_size[1:], device=operation_settings.get("device"), dtype=operation_settings.get("dtype"))
+            self.ref_conv = operations.Conv2d(in_dim_ref_conv, dim, kernel_size=patch_size[1:], stride=patch_size[1:], dtype=operation_settings.get("dtype"))
         else:
             self.ref_conv = None
 
@@ -547,14 +591,14 @@ class WanModel(torch.nn.Module):
         e = self.time_embedding(
             sinusoidal_embedding_1d(self.freq_dim, t.flatten()).to(dtype=x[0].dtype))
         e = e.reshape(t.shape[0], -1, e.shape[-1])
-        e0 = self.time_projection(e).unflatten(2, (6, self.dim))
+        e0 = unflatten(self.time_projection(e), 2, (6, self.dim))
 
         full_ref = None
         if self.ref_conv is not None:
             full_ref = kwargs.get("reference_latent", None)
             if full_ref is not None:
                 full_ref = self.ref_conv(full_ref).flatten(2).transpose(1, 2)
-                x = torch.concat((full_ref, x), dim=1)
+                x = mint.concat((full_ref, x), dim=1)
 
         # context
         context = self.text_embedding(context)
@@ -563,7 +607,7 @@ class WanModel(torch.nn.Module):
         if clip_fea is not None:
             if self.img_emb is not None:
                 context_clip = self.img_emb(clip_fea)  # bs x 257 x dim
-                context = torch.concat([context_clip, context], dim=1)
+                context = mint.concat([context_clip, context], dim=1)
             context_img_len = clip_fea.shape[-2]
 
         patches_replace = transformer_options.get("patches_replace", {})
@@ -614,16 +658,16 @@ class WanModel(torch.nn.Module):
             h_start += rope_options.get("shift_y", 0.0)
             w_start += rope_options.get("shift_x", 0.0)
 
-        img_ids = torch.zeros((steps_t, steps_h, steps_w, 3), device=device, dtype=dtype)
-        img_ids[:, :, :, 0] = img_ids[:, :, :, 0] + torch.linspace(t_start, t_start + (t_len - 1), steps=steps_t, device=device, dtype=dtype).reshape(-1, 1, 1)
-        img_ids[:, :, :, 1] = img_ids[:, :, :, 1] + torch.linspace(h_start, h_start + (h_len - 1), steps=steps_h, device=device, dtype=dtype).reshape(1, -1, 1)
-        img_ids[:, :, :, 2] = img_ids[:, :, :, 2] + torch.linspace(w_start, w_start + (w_len - 1), steps=steps_w, device=device, dtype=dtype).reshape(1, 1, -1)
+        img_ids = mint.zeros((steps_t, steps_h, steps_w, 3), dtype=dtype)
+        img_ids[:, :, :, 0] = img_ids[:, :, :, 0] + mint.linspace(t_start, t_start + (t_len - 1), steps=steps_t, dtype=dtype).reshape(-1, 1, 1)
+        img_ids[:, :, :, 1] = img_ids[:, :, :, 1] + mint.linspace(h_start, h_start + (h_len - 1), steps=steps_h, dtype=dtype).reshape(1, -1, 1)
+        img_ids[:, :, :, 2] = img_ids[:, :, :, 2] + mint.linspace(w_start, w_start + (w_len - 1), steps=steps_w, dtype=dtype).reshape(1, 1, -1)
         img_ids = img_ids.reshape(1, -1, img_ids.shape[-1])
 
         freqs = self.rope_embedder(img_ids).movedim(1, 2)
         return freqs
 
-    def forward(self, x, timestep, context, clip_fea=None, time_dim_concat=None, transformer_options={}, **kwargs):
+    def construct(self, x, timestep, context, clip_fea=None, time_dim_concat=None, transformer_options={}, **kwargs):
         return comfy.patcher_extension.WrapperExecutor.new_class_executor(
             self._forward,
             self,
@@ -637,13 +681,13 @@ class WanModel(torch.nn.Module):
         t_len = t
         if time_dim_concat is not None:
             time_dim_concat = comfy.ldm.common_dit.pad_to_patch_size(time_dim_concat, self.patch_size)
-            x = torch.cat([x, time_dim_concat], dim=2)
+            x = mint.cat([x, time_dim_concat], dim=2)
             t_len = x.shape[2]
 
         if self.ref_conv is not None and "reference_latent" in kwargs:
             t_len += 1
 
-        freqs = self.rope_encode(t_len, h, w, device=x.device, dtype=x.dtype, transformer_options=transformer_options)
+        freqs = self.rope_encode(t_len, h, w, dtype=x.dtype, transformer_options=transformer_options)
         return self.forward_orig(x, timestep, context, clip_fea=clip_fea, freqs=freqs, transformer_options=transformer_options, **kwargs)[:, :, :t, :h, :w]
 
     def unpatchify(self, x, grid_sizes):
@@ -666,7 +710,7 @@ class WanModel(torch.nn.Module):
         u = x
         b = u.shape[0]
         u = u[:, :math.prod(grid_sizes)].view(b, *grid_sizes, *self.patch_size, c)
-        u = torch.einsum('bfhwpqrc->bcfphqwr', u)
+        u = mint.einsum('bfhwpqrc->bcfphqwr', u) # u = u.permute(0, 7, 1, 4, 2, 5, 3, 6)
         u = u.reshape(b, c, *[i * j for i, j in zip(grid_sizes, self.patch_size)])
         return u
 
@@ -701,7 +745,7 @@ class VaceWanModel(WanModel):
                  operations=None,
                  ):
 
-        super().__init__(model_type='t2v', patch_size=patch_size, text_len=text_len, in_dim=in_dim, dim=dim, ffn_dim=ffn_dim, freq_dim=freq_dim, text_dim=text_dim, out_dim=out_dim, num_heads=num_heads, num_layers=num_layers, window_size=window_size, qk_norm=qk_norm, cross_attn_norm=cross_attn_norm, eps=eps, flf_pos_embed_token_number=flf_pos_embed_token_number, image_model=image_model, device=device, dtype=dtype, operations=operations)
+        super().__init__(model_type='t2v', patch_size=patch_size, text_len=text_len, in_dim=in_dim, dim=dim, ffn_dim=ffn_dim, freq_dim=freq_dim, text_dim=text_dim, out_dim=out_dim, num_heads=num_heads, num_layers=num_layers, window_size=window_size, qk_norm=qk_norm, cross_attn_norm=cross_attn_norm, eps=eps, flf_pos_embed_token_number=flf_pos_embed_token_number, image_model=image_model, dtype=dtype, operations=operations)
         operation_settings = {"operations": operations, "device": device, "dtype": dtype}
 
         # Vace
@@ -709,7 +753,7 @@ class VaceWanModel(WanModel):
             self.vace_layers = vace_layers
             self.vace_in_dim = vace_in_dim
             # vace blocks
-            self.vace_blocks = nn.ModuleList([
+            self.vace_blocks = nn.CellList([
                 VaceWanAttentionBlock('t2v_cross_attn', self.dim, self.ffn_dim, self.num_heads, self.window_size, self.qk_norm, self.cross_attn_norm, self.eps, block_id=i, operation_settings=operation_settings)
                 for i in range(self.vace_layers)
             ])
@@ -717,7 +761,7 @@ class VaceWanModel(WanModel):
             self.vace_layers_mapping = {i: n for n, i in enumerate(range(0, self.num_layers, self.num_layers // self.vace_layers))}
             # vace patch embeddings
             self.vace_patch_embedding = operations.Conv3d(
-                self.vace_in_dim, self.dim, kernel_size=self.patch_size, stride=self.patch_size, device=device, dtype=torch.float32
+                self.vace_in_dim, self.dim, kernel_size=self.patch_size, stride=self.patch_size, dtype=ms.float32
             )
 
     def forward_orig(
@@ -740,7 +784,7 @@ class VaceWanModel(WanModel):
         # time embeddings
         e = self.time_embedding(
             sinusoidal_embedding_1d(self.freq_dim, t).to(dtype=x[0].dtype))
-        e0 = self.time_projection(e).unflatten(1, (6, self.dim))
+        e0 = unflatten(self.time_projection(e), 1, (6, self.dim))
 
         # context
         context = self.text_embedding(context)
@@ -749,7 +793,7 @@ class VaceWanModel(WanModel):
         if clip_fea is not None:
             if self.img_emb is not None:
                 context_clip = self.img_emb(clip_fea)  # bs x 257 x dim
-                context = torch.concat([context_clip, context], dim=1)
+                context = mint.concat([context_clip, context], dim=1)
             context_img_len = clip_fea.shape[-2]
 
         orig_shape = list(vace_context.shape)
@@ -821,7 +865,7 @@ class CameraWanModel(WanModel):
         else:
             model_type = 't2v'
 
-        super().__init__(model_type=model_type, patch_size=patch_size, text_len=text_len, in_dim=in_dim, dim=dim, ffn_dim=ffn_dim, freq_dim=freq_dim, text_dim=text_dim, out_dim=out_dim, num_heads=num_heads, num_layers=num_layers, window_size=window_size, qk_norm=qk_norm, cross_attn_norm=cross_attn_norm, eps=eps, flf_pos_embed_token_number=flf_pos_embed_token_number, image_model=image_model, device=device, dtype=dtype, operations=operations)
+        super().__init__(model_type=model_type, patch_size=patch_size, text_len=text_len, in_dim=in_dim, dim=dim, ffn_dim=ffn_dim, freq_dim=freq_dim, text_dim=text_dim, out_dim=out_dim, num_heads=num_heads, num_layers=num_layers, window_size=window_size, qk_norm=qk_norm, cross_attn_norm=cross_attn_norm, eps=eps, flf_pos_embed_token_number=flf_pos_embed_token_number, image_model=image_model, dtype=dtype, operations=operations)
         operation_settings = {"operations": operations, "device": device, "dtype": dtype}
 
         self.control_adapter = WanCamAdapter(in_dim_control_adapter, dim, kernel_size=patch_size[1:], stride=patch_size[1:], operation_settings=operation_settings)
@@ -848,7 +892,7 @@ class CameraWanModel(WanModel):
         # time embeddings
         e = self.time_embedding(
             sinusoidal_embedding_1d(self.freq_dim, t).to(dtype=x[0].dtype))
-        e0 = self.time_projection(e).unflatten(1, (6, self.dim))
+        e0 = unflatten(self.time_projection(e), 1, (6, self.dim))
 
         # context
         context = self.text_embedding(context)
@@ -857,7 +901,7 @@ class CameraWanModel(WanModel):
         if clip_fea is not None:
             if self.img_emb is not None:
                 context_clip = self.img_emb(clip_fea)  # bs x 257 x dim
-                context = torch.concat([context_clip, context], dim=1)
+                context = mint.concat([context_clip, context], dim=1)
             context_img_len = clip_fea.shape[-2]
 
         patches_replace = transformer_options.get("patches_replace", {})
@@ -881,7 +925,7 @@ class CameraWanModel(WanModel):
         return x
 
 
-class CausalConv1d(nn.Module):
+class CausalConv1d(nn.Cell):
 
     def __init__(self,
                  chan_in,
@@ -906,12 +950,12 @@ class CausalConv1d(nn.Module):
             dilation=dilation,
             **kwargs)
 
-    def forward(self, x):
-        x = torch.nn.functional.pad(x, self.time_causal_padding, mode=self.pad_mode)
+    def construct(self, x):
+        x = mint.functional.pad(x, self.time_causal_padding, mode=self.pad_mode)
         return self.conv(x)
 
 
-class MotionEncoder_tc(nn.Module):
+class MotionEncoder_tc(nn.Cell):
 
     def __init__(self,
                  in_dim: int,
@@ -935,7 +979,7 @@ class MotionEncoder_tc(nn.Module):
             elementwise_affine=False,
             eps=1e-6,
             **factory_kwargs)
-        self.act = nn.SiLU()
+        self.act = mint.nn.SiLU()
         self.conv2 = CausalConv1d(hidden_dim // 4, hidden_dim // 2, 3, stride=2, operations=operations, **factory_kwargs)
         self.conv3 = CausalConv1d(hidden_dim // 2, hidden_dim, 3, stride=2, operations=operations, **factory_kwargs)
 
@@ -957,55 +1001,57 @@ class MotionEncoder_tc(nn.Module):
         self.norm3 = operations.LayerNorm(
             hidden_dim, elementwise_affine=False, eps=1e-6, **factory_kwargs)
 
-        self.padding_tokens = nn.Parameter(torch.empty(1, 1, 1, hidden_dim, **factory_kwargs))
+        self.padding_tokens = ms.Parameter(mint.empty(1, 1, 1, hidden_dim, **factory_kwargs))
 
-    def forward(self, x):
-        x = rearrange(x, 'b t c -> b c t')
-        x_ori = x.clone()
+    def construct(self, x):
+        x = x.transpose(1, 2) # rearrange(x, 'b t c -> b c t')
+        x_ori = x.copy()
         b, c, t = x.shape
         x = self.conv1_local(x)
-        x = rearrange(x, 'b (n c) t -> (b n) t c', n=self.num_heads)
+        x = x.reshape(x.shape[0], self.num_heads, -1, x.shape[2]).permute(0, 1, 3, 2).reshape(-1, x.shape[2], -1)
+        #rearrange(x, 'b (n c) t -> (b n) t c', n=self.num_heads)
         x = self.norm1(x)
         x = self.act(x)
-        x = rearrange(x, 'b t c -> b c t')
+        x = x.transpose(1, 2) # rearrange(x, 'b t c -> b c t')
         x = self.conv2(x)
-        x = rearrange(x, 'b c t -> b t c')
+        x = x.transpose(1, 2) # rearrange(x, 'b c t -> b t c')
         x = self.norm2(x)
         x = self.act(x)
-        x = rearrange(x, 'b t c -> b c t')
+        x = x.transpose(1, 2) # rearrange(x, 'b t c -> b c t')
         x = self.conv3(x)
-        x = rearrange(x, 'b c t -> b t c')
+        x = x.transpose(1, 2) # rearrange(x, 'b c t -> b t c')
         x = self.norm3(x)
         x = self.act(x)
-        x = rearrange(x, '(b n) t c -> b t n c', b=b)
-        padding = comfy.model_management.cast_to(self.padding_tokens, dtype=x.dtype, device=x.device).repeat(b, x.shape[1], 1, 1)
-        x = torch.cat([x, padding], dim=-2)
-        x_local = x.clone()
+        x = x.reshape(b, -1, t, c).permute(0, 2, 1, 3) #rearrange(x, '(b n) t c -> b t n c', b=b) 
+        # padding = comfy.model_management.cast_to(self.padding_tokens, dtype=x.dtype).repeat(b, x.shape[1], 1, 1)
+        padding = self.padding_tokens.to(dtype=x.dtype).repeat(b, x.shape[1], 1, 1)
+        x = mint.cat([x, padding], dim=-2)
+        x_local = x.copy()
 
         if not self.need_global:
             return x_local
 
         x = self.conv1_global(x_ori)
-        x = rearrange(x, 'b c t -> b t c')
+        x = x.transpose(1, 2) # rearrange(x, 'b c t -> b t c')
         x = self.norm1(x)
         x = self.act(x)
-        x = rearrange(x, 'b t c -> b c t')
+        x = x.transpose(1, 2) #rearrange(x, 'b t c -> b c t')
         x = self.conv2(x)
-        x = rearrange(x, 'b c t -> b t c')
+        x = x.transpose(1, 2) # rearrange(x, 'b c t -> b t c')
         x = self.norm2(x)
         x = self.act(x)
-        x = rearrange(x, 'b t c -> b c t')
+        x = x.transpose(1, 2) #rearrange(x, 'b t c -> b c t')
         x = self.conv3(x)
-        x = rearrange(x, 'b c t -> b t c')
+        x = x.transpose(1, 2) # rearrange(x, 'b c t -> b t c')
         x = self.norm3(x)
         x = self.act(x)
         x = self.final_linear(x)
-        x = rearrange(x, '(b n) t c -> b t n c', b=b)
+        x = x.reshape(b, -1, t, c).permute(0, 2, 1, 3) # rearrange(x, '(b n) t c -> b t n c', b=b)
 
         return x, x_local
 
 
-class CausalAudioEncoder(nn.Module):
+class CausalAudioEncoder(nn.Cell):
 
     def __init__(self,
                  dim=5120,
@@ -1022,15 +1068,15 @@ class CausalAudioEncoder(nn.Module):
             in_dim=dim,
             hidden_dim=out_dim,
             num_heads=num_token,
-            need_global=need_global, dtype=dtype, device=device, operations=operations)
-        weight = torch.empty((1, num_layers, 1, 1), dtype=dtype, device=device)
+            need_global=need_global, dtype=dtype, operations=operations)
+        weight = mint.empty((1, num_layers, 1, 1), dtype=dtype)
 
-        self.weights = torch.nn.Parameter(weight)
-        self.act = torch.nn.SiLU()
+        self.weights = ms.Parameter(weight)
+        self.act = mint.nn.SiLU()
 
-    def forward(self, features):
+    def construct(self, features):
         # features B * num_layers * dim * video_length
-        weights = self.act(comfy.model_management.cast_to(self.weights, dtype=features.dtype, device=features.device))
+        weights = self.act(self.weights.to(dtype=features.dtype))
         weights_sum = weights.sum(dim=1, keepdims=True)
         weighted_feat = ((features * weights) / weights_sum).sum(
             dim=1)  # b dim f
@@ -1039,17 +1085,17 @@ class CausalAudioEncoder(nn.Module):
         return res  # b f n dim
 
 
-class AdaLayerNorm(nn.Module):
+class AdaLayerNorm(nn.Cell):
     def __init__(self, embedding_dim, output_dim=None, norm_elementwise_affine=False, norm_eps=1e-5, dtype=None, device=None, operations=None):
         super().__init__()
 
         output_dim = output_dim or embedding_dim * 2
 
         self.silu = nn.SiLU()
-        self.linear = operations.Linear(embedding_dim, output_dim, dtype=dtype, device=device)
-        self.norm = operations.LayerNorm(output_dim // 2, norm_eps, norm_elementwise_affine, dtype=dtype, device=device)
+        self.linear = operations.Linear(embedding_dim, output_dim, dtype=dtype)
+        self.norm = operations.LayerNorm(output_dim // 2, norm_eps, norm_elementwise_affine, dtype=dtype)
 
-    def forward(self, x, temb):
+    def construct(self, x, temb):
         temb = self.linear(self.silu(temb))
         shift, scale = temb.chunk(2, dim=1)
         shift = shift[:, None, :]
@@ -1058,7 +1104,7 @@ class AdaLayerNorm(nn.Module):
         return x
 
 
-class AudioInjector_WAN(nn.Module):
+class AudioInjector_WAN(nn.Cell):
 
     def __init__(self,
                  dim=2048,
@@ -1080,60 +1126,64 @@ class AudioInjector_WAN(nn.Module):
             self.injected_block_id[inject_id] = audio_injector_id
             audio_injector_id += 1
 
-        self.injector = nn.ModuleList([
+        self.injector = nn.CellList([
             WanT2VCrossAttention(
                 dim=dim,
                 num_heads=num_heads,
                 qk_norm=True, operation_settings={"operations": operations, "device": device, "dtype": dtype}
             ) for _ in range(audio_injector_id)
         ])
-        self.injector_pre_norm_feat = nn.ModuleList([
+        self.injector_pre_norm_feat = nn.CellList([
             operations.LayerNorm(
                 dim,
                 elementwise_affine=False,
-                eps=1e-6, dtype=dtype, device=device
+                eps=1e-6, dtype=dtype
             ) for _ in range(audio_injector_id)
         ])
-        self.injector_pre_norm_vec = nn.ModuleList([
+        self.injector_pre_norm_vec = nn.CellList([
             operations.LayerNorm(
                 dim,
                 elementwise_affine=False,
-                eps=1e-6, dtype=dtype, device=device
+                eps=1e-6, dtype=dtype
             ) for _ in range(audio_injector_id)
         ])
         if enable_adain:
-            self.injector_adain_layers = nn.ModuleList([
+            self.injector_adain_layers = nn.CellList([
                 AdaLayerNorm(
-                    output_dim=dim * 2, embedding_dim=adain_dim, dtype=dtype, device=device, operations=operations)
+                    output_dim=dim * 2, embedding_dim=adain_dim, dtype=dtype, operations=operations)
                 for _ in range(audio_injector_id)
             ])
             if adain_mode != "attn_norm":
-                self.injector_adain_output_layers = nn.ModuleList(
-                    [operations.Linear(dim, dim, dtype=dtype, device=device) for _ in range(audio_injector_id)])
+                self.injector_adain_output_layers = nn.CellList(
+                    [operations.Linear(dim, dim, dtype=dtype) for _ in range(audio_injector_id)])
 
-    def forward(self, x, block_id, audio_emb, audio_emb_global, seq_len):
+    def construct(self, x, block_id, audio_emb, audio_emb_global, seq_len):
         audio_attn_id = self.injected_block_id.get(block_id, None)
         if audio_attn_id is None:
             return x
 
         num_frames = audio_emb.shape[1]
-        input_hidden_states = rearrange(x[:, :seq_len], "b (t n) c -> (b t) n c", t=num_frames)
+
+        # input_hidden_states = rearrange(x[:, :seq_len], "b (t n) c -> (b t) n c", t=num_frames)
+        tmp =  x[:, :seq_len]
+        input_hidden_states = tmp.reshape(-1, tmp.shape[1] // num_frames, tmp.shape[2])
+
         if self.enable_adain and self.adain_mode == "attn_norm":
-            audio_emb_global = rearrange(audio_emb_global, "b t n c -> (b t) n c")
+            audio_emb_global = audio_emb_global.reshape(-1, audio_emb_global.shape[2], audio_emb_global.shape[3]) # rearrange(audio_emb_global, "b t n c -> (b t) n c")
             adain_hidden_states = self.injector_adain_layers[audio_attn_id](input_hidden_states, temb=audio_emb_global[:, 0])
             attn_hidden_states = adain_hidden_states
         else:
             attn_hidden_states = self.injector_pre_norm_feat[audio_attn_id](input_hidden_states)
-        audio_emb = rearrange(audio_emb, "b t n c -> (b t) n c", t=num_frames)
+        audio_emb = audio_emb.reshape(-1, audio_emb.shape[2], audio_emb.shape[3]) # rearrange(audio_emb, "b t n c -> (b t) n c", t=num_frames)
         attn_audio_emb = audio_emb
         residual_out = self.injector[audio_attn_id](x=attn_hidden_states, context=attn_audio_emb)
-        residual_out = rearrange(
-            residual_out, "(b t) n c -> b (t n) c", t=num_frames)
+        residual_out = residual_out.reshape(-1, num_frames, residual_out.shape[1], residual_out.shape[2]).reshape(-1, num_frames * residual_out.shape[1], residual_out.shape[2])
+        # residual_out = rearrange(residual_out, "(b t) n c -> b (t n) c", t=num_frames) 
         x[:, :seq_len] = x[:, :seq_len] + residual_out
         return x
 
 
-class FramePackMotioner(nn.Module):
+class FramePackMotioner(nn.Cell):
     def __init__(
             self,
             inner_dim=1024,
@@ -1146,9 +1196,9 @@ class FramePackMotioner(nn.Module):
             device=None,
             operations=None):
         super().__init__()
-        self.proj = operations.Conv3d(16, inner_dim, kernel_size=(1, 2, 2), stride=(1, 2, 2), dtype=dtype, device=device)
-        self.proj_2x = operations.Conv3d(16, inner_dim, kernel_size=(2, 4, 4), stride=(2, 4, 4), dtype=dtype, device=device)
-        self.proj_4x = operations.Conv3d(16, inner_dim, kernel_size=(4, 8, 8), stride=(4, 8, 8), dtype=dtype, device=device)
+        self.proj = operations.Conv3d(16, inner_dim, kernel_size=(1, 2, 2), stride=(1, 2, 2), dtype=dtype)
+        self.proj_2x = operations.Conv3d(16, inner_dim, kernel_size=(2, 4, 4), stride=(2, 4, 4), dtype=dtype)
+        self.proj_4x = operations.Conv3d(16, inner_dim, kernel_size=(4, 8, 8), stride=(4, 8, 8), dtype=dtype)
         self.zip_frame_buckets = zip_frame_buckets
 
         self.inner_dim = inner_dim
@@ -1156,9 +1206,9 @@ class FramePackMotioner(nn.Module):
 
         self.drop_mode = drop_mode
 
-    def forward(self, motion_latents, rope_embedder, add_last_motion=2):
+    def construct(self, motion_latents, rope_embedder, add_last_motion=2):
         lat_height, lat_width = motion_latents.shape[3], motion_latents.shape[4]
-        padd_lat = torch.zeros(motion_latents.shape[0], 16, sum(self.zip_frame_buckets), lat_height, lat_width).to(device=motion_latents.device, dtype=motion_latents.dtype)
+        padd_lat = mint.zeros((motion_latents.shape[0], 16, sum(self.zip_frame_buckets), lat_height, lat_width)).to(dtype=motion_latents.dtype)
         overlap_frame = min(padd_lat.shape[2], motion_latents.shape[2])
         if overlap_frame > 0:
             padd_lat[:, :, -overlap_frame:] = motion_latents[:, :, -overlap_frame:]
@@ -1184,13 +1234,13 @@ class FramePackMotioner(nn.Module):
             clean_latents_2x = clean_latents_2x[:, :
                                                 0] if add_last_motion < 1 else clean_latents_2x
 
-        motion_lat = torch.cat([clean_latents_post, clean_latents_2x, clean_latents_4x], dim=1)
+        motion_lat = mint.cat([clean_latents_post, clean_latents_2x, clean_latents_4x], dim=1)
 
-        rope_post = rope_embedder.rope_encode(1, lat_height, lat_width, t_start=-1, device=motion_latents.device, dtype=motion_latents.dtype)
-        rope_2x = rope_embedder.rope_encode(1, lat_height, lat_width, t_start=-3, steps_h=l_2x_shape[-2], steps_w=l_2x_shape[-1], device=motion_latents.device, dtype=motion_latents.dtype)
-        rope_4x = rope_embedder.rope_encode(4, lat_height, lat_width, t_start=-19, steps_h=l_4x_shape[-2], steps_w=l_4x_shape[-1], device=motion_latents.device, dtype=motion_latents.dtype)
+        rope_post = rope_embedder.rope_encode(1, lat_height, lat_width, t_start=-1, dtype=motion_latents.dtype)
+        rope_2x = rope_embedder.rope_encode(1, lat_height, lat_width, t_start=-3, steps_h=l_2x_shape[-2], steps_w=l_2x_shape[-1], dtype=motion_latents.dtype)
+        rope_4x = rope_embedder.rope_encode(4, lat_height, lat_width, t_start=-19, steps_h=l_4x_shape[-2], steps_w=l_4x_shape[-1], dtype=motion_latents.dtype)
 
-        rope = torch.cat([rope_post, rope_2x, rope_4x], dim=1)
+        rope = mint.cat([rope_post, rope_2x, rope_4x], dim=1)
         return motion_lat, rope
 
 
@@ -1224,22 +1274,22 @@ class WanModel_S2V(WanModel):
                  operations=None,
                  ):
 
-        super().__init__(model_type='t2v', patch_size=patch_size, text_len=text_len, in_dim=in_dim, dim=dim, ffn_dim=ffn_dim, freq_dim=freq_dim, text_dim=text_dim, out_dim=out_dim, num_heads=num_heads, num_layers=num_layers, window_size=window_size, qk_norm=qk_norm, cross_attn_norm=cross_attn_norm, eps=eps, image_model=image_model, device=device, dtype=dtype, operations=operations)
+        super().__init__(model_type='t2v', patch_size=patch_size, text_len=text_len, in_dim=in_dim, dim=dim, ffn_dim=ffn_dim, freq_dim=freq_dim, text_dim=text_dim, out_dim=out_dim, num_heads=num_heads, num_layers=num_layers, window_size=window_size, qk_norm=qk_norm, cross_attn_norm=cross_attn_norm, eps=eps, image_model=image_model, dtype=dtype, operations=operations)
 
-        self.trainable_cond_mask = operations.Embedding(3, self.dim, device=device, dtype=dtype)
+        self.trainable_cond_mask = operations.Embedding(3, self.dim, dtype=dtype)
 
         self.casual_audio_encoder = CausalAudioEncoder(
             dim=audio_dim,
             out_dim=self.dim,
             num_token=num_audio_token,
-            need_global=enable_adain, dtype=dtype, device=device, operations=operations)
+            need_global=enable_adain, dtype=dtype, operations=operations)
 
         if cond_dim > 0:
             self.cond_encoder = operations.Conv3d(
                 cond_dim,
                 self.dim,
                 kernel_size=self.patch_size,
-                stride=self.patch_size, device=device, dtype=dtype)
+                stride=self.patch_size, dtype=dtype)
 
         self.audio_injector = AudioInjector_WAN(
             dim=self.dim,
@@ -1249,7 +1299,7 @@ class WanModel_S2V(WanModel):
             enable_adain=enable_adain,
             adain_dim=self.dim,
             adain_mode=adain_mode,
-            dtype=dtype, device=device, operations=operations
+            dtype=dtype, operations=operations
         )
 
         self.frame_packer = FramePackMotioner(
@@ -1257,7 +1307,7 @@ class WanModel_S2V(WanModel):
             num_heads=self.num_heads,
             zip_frame_buckets=[1, 2, 16],
             drop_mode=framepack_drop_mode,
-            dtype=dtype, device=device, operations=operations)
+            dtype=dtype, operations=operations)
 
     def forward_orig(
         self,
@@ -1290,36 +1340,36 @@ class WanModel_S2V(WanModel):
 
         grid_sizes = x.shape[2:]
         x = x.flatten(2).transpose(1, 2)
-        seq_len = x.size(1)
+        seq_len = x.shape[1]
 
-        cond_mask_weight = comfy.model_management.cast_to(self.trainable_cond_mask.weight, dtype=x.dtype, device=x.device).unsqueeze(1).unsqueeze(1)
+        cond_mask_weight = self.trainable_cond_mask.weight.to(dtype=x.dtype).unsqueeze(1).unsqueeze(1)
         x = x + cond_mask_weight[0]
 
         if reference_latent is not None:
             ref = self.patch_embedding(reference_latent.float()).to(x.dtype)
             ref = ref.flatten(2).transpose(1, 2)
-            freqs_ref = self.rope_encode(reference_latent.shape[-3], reference_latent.shape[-2], reference_latent.shape[-1], t_start=max(30, time + 9), device=x.device, dtype=x.dtype)
+            freqs_ref = self.rope_encode(reference_latent.shape[-3], reference_latent.shape[-2], reference_latent.shape[-1], t_start=max(30, time + 9), dtype=x.dtype)
             ref = ref + cond_mask_weight[1]
-            x = torch.cat([x, ref], dim=1)
-            freqs = torch.cat([freqs, freqs_ref], dim=1)
-            t = torch.cat([t, torch.zeros((t.shape[0], reference_latent.shape[-3]), device=t.device, dtype=t.dtype)], dim=1)
+            x = mint.cat([x, ref], dim=1)
+            freqs = mint.cat([freqs, freqs_ref], dim=1)
+            t = mint.cat([t, mint.zeros((t.shape[0], reference_latent.shape[-3]), dtype=t.dtype)], dim=1)
             del ref, freqs_ref
 
         if reference_motion is not None:
             motion_encoded, freqs_motion = self.frame_packer(reference_motion, self)
             motion_encoded = motion_encoded + cond_mask_weight[2]
-            x = torch.cat([x, motion_encoded], dim=1)
-            freqs = torch.cat([freqs, freqs_motion], dim=1)
+            x = mint.cat([x, motion_encoded], dim=1)
+            freqs = mint.cat([freqs, freqs_motion], dim=1)
 
-            t = torch.repeat_interleave(t, 2, dim=1)
-            t = torch.cat([t, torch.zeros((t.shape[0], 3), device=t.device, dtype=t.dtype)], dim=1)
+            t = mint.repeat_interleave(t, 2, dim=1)
+            t = mint.cat([t, mint.zeros((t.shape[0], 3), dtype=t.dtype)], dim=1)
             del motion_encoded, freqs_motion
 
         # time embeddings
         e = self.time_embedding(
             sinusoidal_embedding_1d(self.freq_dim, t.flatten()).to(dtype=x[0].dtype))
         e = e.reshape(t.shape[0], -1, e.shape[-1])
-        e0 = self.time_projection(e).unflatten(2, (6, self.dim))
+        e0 = unflatten(self.time_projection(e), 2, (6, self.dim))
 
         # context
         context = self.text_embedding(context)
@@ -1348,13 +1398,13 @@ class WanModel_S2V(WanModel):
 
 class WanT2VCrossAttentionGather(WanSelfAttention):
 
-    def forward(self, x, context, transformer_options={}, **kwargs):
+    def construct(self, x, context, transformer_options={}, **kwargs):
         r"""
         Args:
             x(Tensor): Shape [B, L1, C] - video tokens
             context(Tensor): Shape [B, L2, C] - audio tokens with shape [B, frames*16, 1536]
         """
-        b, n, d = x.size(0), self.num_heads, self.head_dim
+        b, n, d = x.shape[0], self.num_heads, self.head_dim
 
         q = self.norm_q(self.q(x))
         k = self.norm_k(self.k(context))
@@ -1374,14 +1424,14 @@ class WanT2VCrossAttentionGather(WanSelfAttention):
         return x
 
 
-class AudioCrossAttentionWrapper(nn.Module):
+class AudioCrossAttentionWrapper(nn.Cell):
     def __init__(self, dim, kv_dim, num_heads, qk_norm=True, eps=1e-6, operation_settings={}):
         super().__init__()
 
         self.audio_cross_attn = WanT2VCrossAttentionGather(dim, num_heads, qk_norm=qk_norm, kv_dim=kv_dim, eps=eps, operation_settings=operation_settings)
-        self.norm1_audio = operation_settings.get("operations").LayerNorm(dim, eps, elementwise_affine=True, device=operation_settings.get("device"), dtype=operation_settings.get("dtype"))
+        self.norm1_audio = operation_settings.get("operations").LayerNorm(dim, eps, elementwise_affine=True, dtype=operation_settings.get("dtype"))
 
-    def forward(self, x, audio, transformer_options={}):
+    def construct(self, x, audio, transformer_options={}):
         x = x + self.audio_cross_attn(self.norm1_audio(x), audio, transformer_options=transformer_options)
         return x
 
@@ -1400,7 +1450,7 @@ class WanAttentionBlockAudio(WanAttentionBlock):
         super().__init__(cross_attn_type, dim, ffn_dim, num_heads, window_size, qk_norm, cross_attn_norm, eps, operation_settings)
         self.audio_cross_attn_wrapper = AudioCrossAttentionWrapper(dim, 1536, num_heads, qk_norm, eps, operation_settings=operation_settings)
 
-    def forward(
+    def construct(
         self,
         x,
         e,
@@ -1416,39 +1466,42 @@ class WanAttentionBlockAudio(WanAttentionBlock):
             e(Tensor): Shape [B, 6, C]
             freqs(Tensor): Rope freqs, shape [1024, C / num_heads / 2]
         """
-        # assert e.dtype == torch.float32
+        # assert e.dtype == ms.float32
 
         if e.ndim < 4:
-            e = (comfy.model_management.cast_to(self.modulation, dtype=x.dtype, device=x.device) + e).chunk(6, dim=1)
+            # e = (comfy.model_management.cast_to(self.modulation, dtype=x.dtype) + e).chunk(6, dim=1)
+            e = (self.modulation.to(dtype=x.dtype) + e).chunk(6, dim=1)
         else:
-            e = (comfy.model_management.cast_to(self.modulation, dtype=x.dtype, device=x.device).unsqueeze(0) + e).unbind(2)
-        # assert e[0].dtype == torch.float32
+            # e = (comfy.model_management.cast_to(self.modulation, dtype=x.dtype).unsqueeze(0) + e).unbind(2)
+            e = (self.modulation.to(dtype=x.dtype).unsqueeze(0) + e).unbind(2)
+
+        # assert e[0].dtype == ms.float32
 
         # self-attention
         y = self.self_attn(
-            torch.addcmul(repeat_e(e[0], x), self.norm1(x), 1 + repeat_e(e[1], x)),
+            mint.addcmul(repeat_e(e[0], x), self.norm1(x), 1 + repeat_e(e[1], x)),
             freqs, transformer_options=transformer_options)
 
-        x = torch.addcmul(x, y, repeat_e(e[2], x))
+        x = mint.addcmul(x, y, repeat_e(e[2], x))
 
         # cross-attention & ffn
         x = x + self.cross_attn(self.norm3(x), context, context_img_len=context_img_len, transformer_options=transformer_options)
         if audio is not None:
             x = self.audio_cross_attn_wrapper(x, audio, transformer_options=transformer_options)
-        y = self.ffn(torch.addcmul(repeat_e(e[3], x), self.norm2(x), 1 + repeat_e(e[4], x)))
-        x = torch.addcmul(x, y, repeat_e(e[5], x))
+        y = self.ffn(mint.addcmul(repeat_e(e[3], x), self.norm2(x), 1 + repeat_e(e[4], x)))
+        x = mint.addcmul(x, y, repeat_e(e[5], x))
         return x
 
-class DummyAdapterLayer(nn.Module):
+class DummyAdapterLayer(nn.Cell):
     def __init__(self, layer):
         super().__init__()
         self.layer = layer
 
-    def forward(self, *args, **kwargs):
+    def construct(self, *args, **kwargs):
         return self.layer(*args, **kwargs)
 
 
-class AudioProjModel(nn.Module):
+class AudioProjModel(nn.Cell):
     def __init__(
         self,
         seq_len=5,
@@ -1472,25 +1525,25 @@ class AudioProjModel(nn.Module):
         self.output_dim = output_dim
 
         # define multiple linear layers
-        self.audio_proj_glob_1 = DummyAdapterLayer(operations.Linear(self.input_dim, intermediate_dim, dtype=dtype, device=device))
-        self.audio_proj_glob_2 = DummyAdapterLayer(operations.Linear(intermediate_dim, intermediate_dim, dtype=dtype, device=device))
-        self.audio_proj_glob_3 = DummyAdapterLayer(operations.Linear(intermediate_dim, context_tokens * output_dim, dtype=dtype, device=device))
+        self.audio_proj_glob_1 = DummyAdapterLayer(operations.Linear(self.input_dim, intermediate_dim, dtype=dtype))
+        self.audio_proj_glob_2 = DummyAdapterLayer(operations.Linear(intermediate_dim, intermediate_dim, dtype=dtype))
+        self.audio_proj_glob_3 = DummyAdapterLayer(operations.Linear(intermediate_dim, context_tokens * output_dim, dtype=dtype))
 
-        self.audio_proj_glob_norm = DummyAdapterLayer(operations.LayerNorm(output_dim, dtype=dtype, device=device))
+        self.audio_proj_glob_norm = DummyAdapterLayer(operations.LayerNorm(output_dim, dtype=dtype))
 
-    def forward(self, audio_embeds):
+    def construct(self, audio_embeds):
         video_length = audio_embeds.shape[1]
-        audio_embeds = rearrange(audio_embeds, "bz f w b c -> (bz f) w b c")
+        audio_embeds = audio_embeds.reshape(-1, audio_embeds.shape[2], audio_embeds.shape[3], audio_embeds.shape[4]) # rearrange(audio_embeds, "bz f w b c -> (bz f) w b c")
         batch_size, window_size, blocks, channels = audio_embeds.shape
         audio_embeds = audio_embeds.view(batch_size, window_size * blocks * channels)
 
-        audio_embeds = torch.relu(self.audio_proj_glob_1(audio_embeds))
-        audio_embeds = torch.relu(self.audio_proj_glob_2(audio_embeds))
+        audio_embeds = mint.functional.relu(self.audio_proj_glob_1(audio_embeds))
+        audio_embeds = mint.functional.relu(self.audio_proj_glob_2(audio_embeds))
 
         context_tokens = self.audio_proj_glob_3(audio_embeds).reshape(batch_size, self.context_tokens, self.output_dim)
 
         context_tokens = self.audio_proj_glob_norm(context_tokens)
-        context_tokens = rearrange(context_tokens, "(bz f) m c -> bz f m c", f=video_length)
+        context_tokens = context_tokens.reshape(-1, video_length, context_tokens.shape[1], context_tokens.shape[2]) # rearrange(context_tokens, "(bz f) m c -> bz f m c", f=video_length)
 
         return context_tokens
 
@@ -1524,9 +1577,9 @@ class HumoWanModel(WanModel):
                  operations=None,
                  ):
 
-        super().__init__(model_type='t2v', patch_size=patch_size, text_len=text_len, in_dim=in_dim, dim=dim, ffn_dim=ffn_dim, freq_dim=freq_dim, text_dim=text_dim, out_dim=out_dim, num_heads=num_heads, num_layers=num_layers, window_size=window_size, qk_norm=qk_norm, cross_attn_norm=cross_attn_norm, eps=eps, flf_pos_embed_token_number=flf_pos_embed_token_number, wan_attn_block_class=WanAttentionBlockAudio, image_model=image_model, device=device, dtype=dtype, operations=operations)
+        super().__init__(model_type='t2v', patch_size=patch_size, text_len=text_len, in_dim=in_dim, dim=dim, ffn_dim=ffn_dim, freq_dim=freq_dim, text_dim=text_dim, out_dim=out_dim, num_heads=num_heads, num_layers=num_layers, window_size=window_size, qk_norm=qk_norm, cross_attn_norm=cross_attn_norm, eps=eps, flf_pos_embed_token_number=flf_pos_embed_token_number, wan_attn_block_class=WanAttentionBlockAudio, image_model=image_model, dtype=dtype, operations=operations)
 
-        self.audio_proj = AudioProjModel(seq_len=8, blocks=5, channels=1280, intermediate_dim=512, output_dim=1536, context_tokens=audio_token_num, dtype=dtype, device=device, operations=operations)
+        self.audio_proj = AudioProjModel(seq_len=8, blocks=5, channels=1280, intermediate_dim=512, output_dim=1536, context_tokens=audio_token_num, dtype=dtype, operations=operations)
 
     def forward_orig(
         self,
@@ -1550,14 +1603,14 @@ class HumoWanModel(WanModel):
         e = self.time_embedding(
             sinusoidal_embedding_1d(self.freq_dim, t.flatten()).to(dtype=x[0].dtype))
         e = e.reshape(t.shape[0], -1, e.shape[-1])
-        e0 = self.time_projection(e).unflatten(2, (6, self.dim))
+        e0 = unflatten(self.time_projection(e, 2, (6, self.dim)))
 
         if reference_latent is not None:
             ref = self.patch_embedding(reference_latent.float()).to(x.dtype)
             ref = ref.flatten(2).transpose(1, 2)
-            freqs_ref = self.rope_encode(reference_latent.shape[-3], reference_latent.shape[-2], reference_latent.shape[-1], t_start=time, device=x.device, dtype=x.dtype)
-            x = torch.cat([x, ref], dim=1)
-            freqs = torch.cat([freqs, freqs_ref], dim=1)
+            freqs_ref = self.rope_encode(reference_latent.shape[-3], reference_latent.shape[-2], reference_latent.shape[-1], t_start=time, dtype=x.dtype)
+            x = mint.cat([x, ref], dim=1)
+            freqs = mint.cat([freqs, freqs_ref], dim=1)
             del ref, freqs_ref
 
         # context
@@ -1566,8 +1619,8 @@ class HumoWanModel(WanModel):
 
         if audio_embed is not None:
             if reference_latent is not None:
-                zero_audio_pad = torch.zeros(audio_embed.shape[0], reference_latent.shape[-3], *audio_embed.shape[2:], device=audio_embed.device, dtype=audio_embed.dtype)
-                audio_embed = torch.cat([audio_embed, zero_audio_pad], dim=1)
+                zero_audio_pad = mint.zeros((audio_embed.shape[0], reference_latent.shape[-3], *audio_embed.shape[2:]), dtype=audio_embed.dtype)
+                audio_embed = mint.cat([audio_embed, zero_audio_pad], dim=1)
             audio = self.audio_proj(audio_embed).permute(0, 3, 1, 2).flatten(2).transpose(1, 2)
         else:
             audio = None

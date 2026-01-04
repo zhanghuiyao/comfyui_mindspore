@@ -4,7 +4,6 @@ from transformers import CLIPTokenizer
 import comfy.ops
 import traceback
 import zipfile
-from . import model_management
 import comfy.clip_model
 import json
 import logging

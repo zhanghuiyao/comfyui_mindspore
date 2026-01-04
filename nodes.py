@@ -22,8 +22,8 @@ from mindone.safetensors.mindspore import load_file
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "comfy"))
 
 import comfy.diffusers_load
-# import comfy.samplers
-# import comfy.sample
+import comfy.samplers
+import comfy.sample
 import comfy.sd
 import comfy.utils
 # import comfy.controlnet
@@ -2266,7 +2266,7 @@ async def init_builtin_extra_nodes():
         # "nodes_hypertile.py",
         "nodes_model_advanced.py",
         # "nodes_model_downscale.py",
-        # "nodes_images.py",
+        "nodes_images.py",
         # "nodes_video_model.py",
         # "nodes_train.py",
         # "nodes_sag.py",
@@ -2302,9 +2302,9 @@ async def init_builtin_extra_nodes():
         # "nodes_hooks.py",
         # "nodes_load_3d.py",
         # "nodes_cosmos.py",
-        # "nodes_video.py",
+        "nodes_video.py",
         # "nodes_lumina2.py",
-        # "nodes_wan.py",
+        "nodes_wan.py",
         # "nodes_lotus.py",
         # "nodes_hunyuan3d.py",
         # "nodes_primitive.py",
