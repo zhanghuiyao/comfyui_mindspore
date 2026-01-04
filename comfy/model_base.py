@@ -24,7 +24,7 @@ from comfy.ldm.modules.diffusionmodules.openaimodel import UNetModel, Timestep
 # from comfy.ldm.cascade.stage_b import StageB
 from comfy.ldm.modules.encoders.noise_aug_modules import CLIPEmbeddingNoiseAugmentation
 # from comfy.ldm.modules.diffusionmodules.upscaling import ImageConcatWithNoiseAugmentation
-# from comfy.ldm.modules.diffusionmodules.mmdit import OpenAISignatureMMDITWrapper
+from comfy.ldm.modules.diffusionmodules.mmdit import OpenAISignatureMMDITWrapper
 # import comfy.ldm.genmo.joint_model.asymm_models_joint
 # import comfy.ldm.aura.mmdit
 # import comfy.ldm.pixart.pixartms
@@ -734,19 +734,19 @@ class SD21UNCLIP(BaseModel):
 #         return out
 
 
-# class SD3(BaseModel):
-#     def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
-#         super().__init__(model_config, model_type, device=device, unet_model=OpenAISignatureMMDITWrapper)
+class SD3(BaseModel):
+    def __init__(self, model_config, model_type=ModelType.FLOW, device=None):
+        super().__init__(model_config, model_type, device=device, unet_model=OpenAISignatureMMDITWrapper)
 
-#     def encode_adm(self, **kwargs):
-#         return kwargs["pooled_output"]
+    def encode_adm(self, **kwargs):
+        return kwargs["pooled_output"]
 
-#     def extra_conds(self, **kwargs):
-#         out = super().extra_conds(**kwargs)
-#         cross_attn = kwargs.get("cross_attn", None)
-#         if cross_attn is not None:
-#             out['c_crossattn'] = comfy.conds.CONDRegular(cross_attn)
-#         return out
+    def extra_conds(self, **kwargs):
+        out = super().extra_conds(**kwargs)
+        cross_attn = kwargs.get("cross_attn", None)
+        if cross_attn is not None:
+            out['c_crossattn'] = comfy.conds.CONDRegular(cross_attn)
+        return out
 
 
 # class AuraFlow(BaseModel):

@@ -528,41 +528,41 @@ from . import diffusers_convert
 #     def get_model(self, state_dict, prefix="", device=None):
 #         return model_base.Lotus(self, device=device)
 
-# class SD3(supported_models_base.BASE):
-#     unet_config = {
-#         "in_channels": 16,
-#         "pos_embed_scaling_factor": None,
-#     }
+class SD3(supported_models_base.BASE):
+    unet_config = {
+        "in_channels": 16,
+        "pos_embed_scaling_factor": None,
+    }
 
-#     sampling_settings = {
-#         "shift": 3.0,
-#     }
+    sampling_settings = {
+        "shift": 3.0,
+    }
 
-#     unet_extra_config = {}
-#     latent_format = latent_formats.SD3
+    unet_extra_config = {}
+    latent_format = latent_formats.SD3
 
-#     memory_usage_factor = 1.2
+    memory_usage_factor = 1.2
 
-#     text_encoder_key_prefix = ["text_encoders."]
+    text_encoder_key_prefix = ["text_encoders."]
 
-#     def get_model(self, state_dict, prefix="", device=None):
-#         out = model_base.SD3(self, device=device)
-#         return out
+    def get_model(self, state_dict, prefix="", device=None):
+        out = model_base.SD3(self, device=device)
+        return out
 
-#     def clip_target(self, state_dict={}):
-#         clip_l = False
-#         clip_g = False
-#         t5 = False
-#         pref = self.text_encoder_key_prefix[0]
-#         if "{}clip_l.transformer.text_model.final_layer_norm.weight".format(pref) in state_dict:
-#             clip_l = True
-#         if "{}clip_g.transformer.text_model.final_layer_norm.weight".format(pref) in state_dict:
-#             clip_g = True
-#         t5_detect = comfy.text_encoders.sd3_clip.t5_xxl_detect(state_dict, "{}t5xxl.transformer.".format(pref))
-#         if "dtype_t5" in t5_detect:
-#             t5 = True
+    def clip_target(self, state_dict={}):
+        clip_l = False
+        clip_g = False
+        t5 = False
+        pref = self.text_encoder_key_prefix[0]
+        if "{}clip_l.transformer.text_model.final_layer_norm.weight".format(pref) in state_dict:
+            clip_l = True
+        if "{}clip_g.transformer.text_model.final_layer_norm.weight".format(pref) in state_dict:
+            clip_g = True
+        t5_detect = comfy.text_encoders.sd3_clip.t5_xxl_detect(state_dict, "{}t5xxl.transformer.".format(pref))
+        if "dtype_t5" in t5_detect:
+            t5 = True
 
-#         return supported_models_base.ClipTarget(comfy.text_encoders.sd3_clip.SD3Tokenizer, comfy.text_encoders.sd3_clip.sd3_clip(clip_l=clip_l, clip_g=clip_g, t5=t5, **t5_detect))
+        return supported_models_base.ClipTarget(comfy.text_encoders.sd3_clip.SD3Tokenizer, comfy.text_encoders.sd3_clip.sd3_clip(clip_l=clip_l, clip_g=clip_g, t5=t5, **t5_detect))
 
 # class StableAudio(supported_models_base.BASE):
 #     unet_config = {
@@ -1380,4 +1380,5 @@ class QwenImage(supported_models_base.BASE):
 
 # models += [SVD_img2vid]
 
-models = [Flux, QwenImage, WAN22_T2V, WAN21_T2V, WAN21_I2V, WAN21_FunControl2V, WAN21_Vace, WAN21_Camera, WAN22_Camera, WAN22_S2V, WAN21_HuMo, WAN22_Animate]
+models = [Flux, QwenImage, SD3, WAN22_T2V, WAN21_T2V, WAN21_I2V, WAN21_FunControl2V, WAN21_Vace, WAN21_Camera, WAN22_Camera, WAN22_S2V, WAN21_HuMo, WAN22_Animate]
+

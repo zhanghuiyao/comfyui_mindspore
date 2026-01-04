@@ -74,17 +74,17 @@ class CLIPTextEncode(ComfyNodeABC):
         return (clip.encode_from_tokens_scheduled(tokens), )
 
 
-# class ConditioningCombine:
-#     @classmethod
-#     def INPUT_TYPES(s):
-#         return {"required": {"conditioning_1": ("CONDITIONING", ), "conditioning_2": ("CONDITIONING", )}}
-#     RETURN_TYPES = ("CONDITIONING",)
-#     FUNCTION = "combine"
+class ConditioningCombine:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {"conditioning_1": ("CONDITIONING", ), "conditioning_2": ("CONDITIONING", )}}
+    RETURN_TYPES = ("CONDITIONING",)
+    FUNCTION = "combine"
 
-#     CATEGORY = "conditioning"
+    CATEGORY = "conditioning"
 
-#     def combine(self, conditioning_1, conditioning_2):
-#         return (conditioning_1 + conditioning_2, )
+    def combine(self, conditioning_1, conditioning_2):
+        return (conditioning_1 + conditioning_2, )
 
 # class ConditioningAverage :
 #     @classmethod
@@ -235,45 +235,45 @@ class CLIPTextEncode(ComfyNodeABC):
 #                                                                 "mask_strength": strength})
 #         return (c, )
 
-# class ConditioningZeroOut:
-#     @classmethod
-#     def INPUT_TYPES(s):
-#         return {"required": {"conditioning": ("CONDITIONING", )}}
-#     RETURN_TYPES = ("CONDITIONING",)
-#     FUNCTION = "zero_out"
+class ConditioningZeroOut:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {"conditioning": ("CONDITIONING", )}}
+    RETURN_TYPES = ("CONDITIONING",)
+    FUNCTION = "zero_out"
 
-#     CATEGORY = "advanced/conditioning"
+    CATEGORY = "advanced/conditioning"
 
-#     def zero_out(self, conditioning):
-#         c = []
-#         for t in conditioning:
-#             d = t[1].copy()
-#             pooled_output = d.get("pooled_output", None)
-#             if pooled_output is not None:
-#                 d["pooled_output"] = torch.zeros_like(pooled_output)
-#             conditioning_lyrics = d.get("conditioning_lyrics", None)
-#             if conditioning_lyrics is not None:
-#                 d["conditioning_lyrics"] = torch.zeros_like(conditioning_lyrics)
-#             n = [torch.zeros_like(t[0]), d]
-#             c.append(n)
-#         return (c, )
+    def zero_out(self, conditioning):
+        c = []
+        for t in conditioning:
+            d = t[1].copy()
+            pooled_output = d.get("pooled_output", None)
+            if pooled_output is not None:
+                d["pooled_output"] = mint.zeros_like(pooled_output)
+            conditioning_lyrics = d.get("conditioning_lyrics", None)
+            if conditioning_lyrics is not None:
+                d["conditioning_lyrics"] = mint.zeros_like(conditioning_lyrics)
+            n = [mint.zeros_like(t[0]), d]
+            c.append(n)
+        return (c, )
 
-# class ConditioningSetTimestepRange:
-#     @classmethod
-#     def INPUT_TYPES(s):
-#         return {"required": {"conditioning": ("CONDITIONING", ),
-#                              "start": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.001}),
-#                              "end": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.001})
-#                              }}
-#     RETURN_TYPES = ("CONDITIONING",)
-#     FUNCTION = "set_range"
+class ConditioningSetTimestepRange:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {"conditioning": ("CONDITIONING", ),
+                             "start": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.001}),
+                             "end": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.001})
+                             }}
+    RETURN_TYPES = ("CONDITIONING",)
+    FUNCTION = "set_range"
 
-#     CATEGORY = "advanced/conditioning"
+    CATEGORY = "advanced/conditioning"
 
-#     def set_range(self, conditioning, start, end):
-#         c = node_helpers.conditioning_set_values(conditioning, {"start_percent": start,
-#                                                                 "end_percent": end})
-#         return (c, )
+    def set_range(self, conditioning, start, end):
+        c = node_helpers.conditioning_set_values(conditioning, {"start_percent": start,
+                                                                "end_percent": end})
+        return (c, )
 
 class VAEDecode:
     @classmethod
@@ -556,27 +556,27 @@ class LoadLatent:
 #         ckpt_path = folder_paths.get_full_path_or_raise("checkpoints", ckpt_name)
 #         return comfy.sd.load_checkpoint(config_path, ckpt_path, output_vae=True, output_clip=True, embedding_directory=folder_paths.get_folder_paths("embeddings"))
 
-# class CheckpointLoaderSimple:
-#     @classmethod
-#     def INPUT_TYPES(s):
-#         return {
-#             "required": {
-#                 "ckpt_name": (folder_paths.get_filename_list("checkpoints"), {"tooltip": "The name of the checkpoint (model) to load."}),
-#             }
-#         }
-#     RETURN_TYPES = ("MODEL", "CLIP", "VAE")
-#     OUTPUT_TOOLTIPS = ("The model used for denoising latents.",
-#                        "The CLIP model used for encoding text prompts.",
-#                        "The VAE model used for encoding and decoding images to and from latent space.")
-#     FUNCTION = "load_checkpoint"
+class CheckpointLoaderSimple:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "ckpt_name": (folder_paths.get_filename_list("checkpoints"), {"tooltip": "The name of the checkpoint (model) to load."}),
+            }
+        }
+    RETURN_TYPES = ("MODEL", "CLIP", "VAE")
+    OUTPUT_TOOLTIPS = ("The model used for denoising latents.",
+                       "The CLIP model used for encoding text prompts.",
+                       "The VAE model used for encoding and decoding images to and from latent space.")
+    FUNCTION = "load_checkpoint"
 
-#     CATEGORY = "loaders"
-#     DESCRIPTION = "Loads a diffusion model checkpoint, diffusion models are used to denoise latents."
+    CATEGORY = "loaders"
+    DESCRIPTION = "Loads a diffusion model checkpoint, diffusion models are used to denoise latents."
 
-#     def load_checkpoint(self, ckpt_name):
-#         ckpt_path = folder_paths.get_full_path_or_raise("checkpoints", ckpt_name)
-#         out = comfy.sd.load_checkpoint_guess_config(ckpt_path, output_vae=True, output_clip=True, embedding_directory=folder_paths.get_folder_paths("embeddings"))
-#         return out[:3]
+    def load_checkpoint(self, ckpt_name):
+        ckpt_path = folder_paths.get_full_path_or_raise("checkpoints", ckpt_name)
+        out = comfy.sd.load_checkpoint_guess_config(ckpt_path, output_vae=True, output_clip=True, embedding_directory=folder_paths.get_folder_paths("embeddings"))
+        return out[:3]
 
 # class DiffusersLoader:
 #     @classmethod
@@ -955,7 +955,7 @@ class DualCLIPLoader:
     def INPUT_TYPES(s):
         return {"required": { "clip_name1": (folder_paths.get_filename_list("text_encoders"), ),
                               "clip_name2": (folder_paths.get_filename_list("text_encoders"), ),
-                              "type": (["flux",], ),  # "sdxl", "sd3", "flux", "hunyuan_video", "hidream", "hunyuan_image"
+                              "type": (["flux","sdxl",], ),  # "sd3", "flux", "hunyuan_video", "hidream", "hunyuan_image"
                               },
                 "optional": {
                               "device": (["default", "cpu"], {"advanced": True}),
@@ -1941,7 +1941,7 @@ class PreviewImage(SaveImage):
 
 NODE_CLASS_MAPPINGS = {
     "KSampler": KSampler,
-    # "CheckpointLoaderSimple": CheckpointLoaderSimple,
+    "CheckpointLoaderSimple": CheckpointLoaderSimple,
     "CLIPTextEncode": CLIPTextEncode,
     # "CLIPSetLastLayer": CLIPSetLastLayer,
     "VAEDecode": VAEDecode,
@@ -1965,7 +1965,7 @@ NODE_CLASS_MAPPINGS = {
     # "ImagePadForOutpaint": ImagePadForOutpaint,
     # "EmptyImage": EmptyImage,
     # "ConditioningAverage": ConditioningAverage ,
-    # "ConditioningCombine": ConditioningCombine,
+    "ConditioningCombine": ConditioningCombine,
     # "ConditioningConcat": ConditioningConcat,
     # "ConditioningSetArea": ConditioningSetArea,
     # "ConditioningSetAreaPercentage": ConditioningSetAreaPercentage,
@@ -2004,8 +2004,8 @@ NODE_CLASS_MAPPINGS = {
     # "LoadLatent": LoadLatent,
     # "SaveLatent": SaveLatent,
 
-    # "ConditioningZeroOut": ConditioningZeroOut,
-    # "ConditioningSetTimestepRange": ConditioningSetTimestepRange,
+    "ConditioningZeroOut": ConditioningZeroOut,
+    "ConditioningSetTimestepRange": ConditioningSetTimestepRange,
     # "LoraLoaderModelOnly": LoraLoaderModelOnly,
 }
 

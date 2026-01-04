@@ -438,7 +438,7 @@ def normal_scheduler(model_sampling, steps, sgm=False, floor=False):
 
     append_zero = True
     if sgm:
-        timesteps = mint.linspace(start, end, steps + 1)[:-1]
+        timesteps = mint.linspace(int(start), int(end), steps + 1)[:-1]
     else:
         if math.isclose(float(s.sigma(end)), 0, abs_tol=0.00001):
             steps += 1
