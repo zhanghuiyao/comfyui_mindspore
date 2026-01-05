@@ -58,6 +58,8 @@ class QwenImageAppPipeline(Resource):
             negative_prompt=kwargs.get("negative_prompt", " "),
             num_inference_steps=kwargs.get("num_inference_steps", 50),
             true_cfg_scale=kwargs.get("true_cfg_scale", 4.0),
+            width=kwargs.get("width", 1024),
+            height=kwargs.get("height", 1024),
             generator=np.random.Generator(np.random.PCG64(seed=seed)),
         )[0][0]
 
@@ -80,7 +82,7 @@ class QwenImageAPI(Resource):
                     return {"error": "No data provided"}, 400
 
                 feature = {}
-                allowed_keys = {"prompts", "num_inference_steps", "negative_prompt", "true_cfg_scale"}
+                allowed_keys = {"prompts", "num_inference_steps", "negative_prompt", "true_cfg_scale", "width", "height"}
                 for key, value in data.items():
                     if key in allowed_keys and value is not None:
                         feature[key] = value

@@ -71,12 +71,11 @@ class AsyncQwenImageGenerator:
         except Exception as e:
             raise Exception(f"API call failed: {str(e)}")
     
-    def _generate_parallel_sync(self, prompt, num_workers, base_port, 
-                               negative_prompt, base_seed, num_inference_steps, 
-                               true_cfg_scale, timeout):
-        # Create worker URLs
+    def _generate_parallel_sync(self, prompt, negative_prompt, width, height,
+                                num_inference_steps, true_cfg_scale, num_workers,
+                                base_port, base_seed, timeout):
+        # Create worker URLs and seed
         urls = [f"http://127.0.0.1:{base_port + i}/qwenimage-api" for i in range(num_workers)]
-        
         # Payload for each worker
         payloads = []
         for i in range(num_workers):
@@ -86,6 +85,8 @@ class AsyncQwenImageGenerator:
                 "num_inference_steps": num_inference_steps,
                 "negative_prompt": negative_prompt.strip() if negative_prompt.strip() else " ",
                 "true_cfg_scale": true_cfg_scale,
+                "width": width,
+                "height": height,
                 "seed": base_seed
             }
 
@@ -124,12 +125,14 @@ class AsyncQwenImageGenerator:
 
             successful_images, errors = self._generate_parallel_sync(
                 prompt=prompt,
-                num_workers=num_workers,
-                base_port=base_port,
                 negative_prompt=negative_prompt,
-                base_seed=base_seed,
+                width=width,
+                height=height,
                 num_inference_steps=num_inference_steps,
                 true_cfg_scale=true_cfg_scale,
+                num_workers=num_workers,
+                base_port=base_port,
+                base_seed=base_seed,
                 timeout=timeout
             )
 
@@ -138,8 +141,6 @@ class AsyncQwenImageGenerator:
                 print(f"[AsyncQwen] {error_msg}")
                 return (self.create_error_tensor(height, width), error_msg)
 
-            print(f"[AsyncQwen] Successfully generated {len(successful_images)} images")
-
             # Convert to tensor
             image_tensors = []
             for image in successful_images:
@@ -147,45 +148,31 @@ class AsyncQwenImageGenerator:
                 if image.mode != 'RGB':
                     image = image.convert('RGB')
 
-                # to target shape
-                if image.size != (width, height):
-                    image = image.resize((width, height), Image.Resampling.LANCZOS)
-
                 # to numpy
                 image_np = np.array(image).astype(np.float32) / 255.0
-                
-                # (H, W, C) -> (1, C, H, W)
+
+                # (H, W, C) -> (1, H, W, C)
                 if len(image_np.shape) == 3:
-                    image_tensor = ms.from_numpy(image_np.transpose(2, 0, 1)).unsqueeze(0)
-                else:
-                    # create tensor indicating the errors
-                    print(f"[AsyncQwen] Unexpected image shape: {image_np.shape}")
-                    image_tensor = self.create_error_tensor(height, width)
+                    image_tensor = ms.from_numpy(image_np).unsqueeze(0)
+                # (B, H, W, C)
+                elif len(image_np.shape) == 4:
+                    image_tensor = ms.from_numpy(image_np)
                 
                 image_tensors.append(image_tensor)
-            
+
             # Collect tensors
             if len(image_tensors) > 1:
-                # ensure all tensor shapes are consistent
-                shapes = [tensor.shape for tensor in image_tensors]
-                if len(set(shapes)) > 1:
-                    print(f"[AsyncQwen] Warning: Inconsistent tensor shapes: {shapes}")
-                    # use the first tensor
-                    final_tensor = image_tensors[0]
-                else:
-                    final_tensor = ms.mint.cat(image_tensors, dim=0)
-            else:
                 final_tensor = image_tensors[0]
-            
-            # Output the final shape of tensor
-            print(f"[AsyncQwen] Final tensor shape: {final_tensor.shape}")
-            
+                # final_tensor = ms.mint.cat(image_tensors, dim=0)  # image_num = num_workers
+            else:
+                final_tensor = image_tensors
+
             # Create Information String
             info = f"Generated {len(successful_images)} images | Steps: {num_inference_steps} | Workers: {num_workers}"
             if errors:
                 info += f" | Errors: {len(errors)}"
-            
-            return (final_tensor[0], info)
+
+            return (final_tensor, info)
             
         except Exception as e:
             error_msg = f"Generation failed: {str(e)}"
