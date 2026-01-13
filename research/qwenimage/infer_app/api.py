@@ -48,8 +48,13 @@ class QwenImageAppPipeline(Resource):
 
         # wait for all NPUs
         dist.barrier()
+        print("Loaded QwenImage pipeline, start to warm up")
 
-        print("Loaded QwenImage pipeline")
+        self.generate(
+            prompts="A nice breakfast for a wonderful day",
+            num_inference_steps=12
+        )
+        print("Finished warm up!")
 
     def generate(self, prompts, *args, **kwargs):
         seed = kwargs.get("seed", 42)

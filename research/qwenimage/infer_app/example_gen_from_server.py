@@ -14,7 +14,7 @@ def call_api_gen(url):
             async with aiohttp.ClientSession() as sess:
                 data = {
                     "prompts": samples,
-                    "num_inference_steps": kwargs.get("num_inference_steps", 50),
+                    "num_inference_steps": kwargs.get("num_inference_steps", 24),
                     "negative_prompt": kwargs.get("negative_prompt", " "),
                     "true_cfg_scale": kwargs.get("true_cfg_scale", 4.0),
                 }

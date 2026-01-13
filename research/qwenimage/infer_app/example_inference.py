@@ -68,7 +68,7 @@ def main():
     image = pipe(
         prompt,
         negative_prompt=negative_prompt,
-        num_inference_steps=50,
+        num_inference_steps=24,
         true_cfg_scale=4.0,
         generator=np.random.Generator(np.random.PCG64(seed=args.seed)),
     )[0][0]

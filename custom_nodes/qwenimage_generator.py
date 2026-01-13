@@ -16,12 +16,12 @@ class AsyncQwenImageGenerator:
                 "prompt": ("STRING", {"multiline": True, "default": "a beautiful landscape with mountains and lake"}),
                 "width": ("INT", {"default": 1024, "min": 64, "max": 2048, "step": 64}),
                 "height": ("INT", {"default": 1024, "min": 64, "max": 2048, "step": 64}),
-                "num_inference_steps": ("INT", {"default": 50, "min": 1, "max": 200}),
+                "num_inference_steps": ("INT", {"default": 24, "min": 1, "max": 200}),
                 "true_cfg_scale": ("FLOAT", {"default": 4.0, "min": 1.0, "max": 20.0, "step": 0.1}),
                 "num_workers": ("INT", {"default": 4, "min": 1, "max": 8, "step": 1}),
             },
             "optional": {
-                "negative_prompt": ("STRING", {"multiline": True, "default": ""}),
+                "negative_prompt": ("STRING", {"multiline": True, "default": ""}),  # disable can accelerate but precision loss
                 "base_seed": ("INT", {"default": 42, "min": 0, "max": 0xffffffffffffffff}),
                 "base_port": ("INT", {"default": 5000, "min": 1000, "max": 9999}),
                 "timeout": ("INT", {"default": 15000, "min": 1000, "max": 300000, "step": 1000}),
